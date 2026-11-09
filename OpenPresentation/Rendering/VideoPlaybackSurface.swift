@@ -24,6 +24,8 @@ struct VideoPlaybackSurface: NSViewRepresentable {
     var sourceSlot: String = "background"
     /// Slide-transition mix level; 1 means unchanged audio.
     var audioGain: Double = 1.0
+    var preFaderGain: Double = 1.0
+    var faderGain: Double = 1.0
 
     func makeNSView(context: Context) -> VideoPlaybackHostView {
         let view = VideoPlaybackHostView(frame: .zero)
@@ -31,7 +33,8 @@ struct VideoPlaybackSurface: NSViewRepresentable {
                        behavior: behavior, fadeDuration: fadeDuration,
                        audioEnabled: audioEnabled,
                        volume: volume * audioGain * liveAudioMix.effectiveProgramGain,
-                       programGain: volume * audioGain, contentMode: contentMode)
+                       preFaderGain: preFaderGain, faderGain: faderGain,
+                       contentMode: contentMode)
         return view
     }
 
@@ -40,7 +43,8 @@ struct VideoPlaybackSurface: NSViewRepresentable {
                        behavior: behavior, fadeDuration: fadeDuration,
                        audioEnabled: audioEnabled,
                        volume: volume * audioGain * liveAudioMix.effectiveProgramGain,
-                       programGain: volume * audioGain, contentMode: contentMode)
+                       preFaderGain: preFaderGain, faderGain: faderGain,
+                       contentMode: contentMode)
     }
 
     static func dismantleNSView(_ view: VideoPlaybackHostView, coordinator: ()) {
@@ -70,7 +74,8 @@ final class VideoPlaybackHostView: NSView {
 
     func configure(path: String, session: UUID, scope: String, sourceSlot: String, behavior: VideoEndBehavior,
                    fadeDuration: Double, audioEnabled: Bool, volume: Double,
-                   programGain: Double, contentMode: LayerContentMode) {
+                   preFaderGain: Double, faderGain: Double,
+                   contentMode: LayerContentMode) {
         let newKey = VideoPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                            scope: scope, sessionID: session, sourceSlot: sourceSlot)
         let newlyMounted = key != newKey || engine == nil
@@ -84,7 +89,6 @@ final class VideoPlaybackHostView: NSView {
             addSubview(retained)
             retained.frame = bounds
             retained.autoresizingMask = [.width, .height]
-            VideoPlaybackPool.shared.didAttach(retained, key: newKey)
         }
         // An outgoing canvas sometimes receives another SwiftUI update AFTER
         // its view has been reparented to the incoming canvas. Ignore that
@@ -92,8 +96,11 @@ final class VideoPlaybackHostView: NSView {
         guard let engine, engine.superview === self else { return }
         engine.configure(path: newKey.path, behavior: behavior,
                          fadeDuration: fadeDuration, audioEnabled: audioEnabled,
-                         volume: volume, programGain: programGain, contentMode: contentMode,
+                         volume: volume, preFaderGain: preFaderGain,
+                         faderGain: faderGain, contentMode: contentMode,
                          meterScope: scope)
+        // A cached audible player must not restart before the new mute state.
+        if newlyMounted { VideoPlaybackPool.shared.didAttach(engine, key: newKey) }
         VideoPlaybackPool.shared.applyTransportIntent(to: engine, key: newKey)
         if newlyMounted { VideoPlaybackPool.shared.alignNewSurface(engine, key: newKey) }
     }
@@ -335,7 +342,10 @@ final class VideoPlaybackNSView: NSView {
     private var baseVolume: Float = 1
     private var meterPrimaryID: UUID?
     private var meterStandbyID: UUID?
-    private var meterProgramGain: Double = 1
+    private var meterPreFaderGain: Double = 1
+    private var meterFaderGain: Double = 1
+    private var meterNominalVolume: Double = 1
+    private var audibleVolume: Float { audioIsEnabled ? baseVolume : 0 }
     private var meterScope: String = "program"
 
     private var loopQueue: AVQueuePlayer?
@@ -416,7 +426,7 @@ final class VideoPlaybackNSView: NSView {
         standby?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
         blendStarted = false
         setAlphas(primary: 1, standby: 0, black: 0)
-        player.volume = baseVolume
+        player.volume = audibleVolume
         standby?.volume = 0
         let target = CMTime(seconds: clipped, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -467,7 +477,8 @@ final class VideoPlaybackNSView: NSView {
     private var background: AVPlayerLayer { primaryIsA ? videoB : videoA }
 
     func configure(path: String, behavior: VideoEndBehavior, fadeDuration: Double,
-                   audioEnabled: Bool, volume: Double, programGain: Double, contentMode: LayerContentMode, meterScope: String) {
+                   audioEnabled: Bool, volume: Double, preFaderGain: Double,
+                   faderGain: Double, contentMode: LayerContentMode, meterScope: String) {
         let gravity: AVLayerVideoGravity
         switch contentMode {
         case .fit: gravity = .resizeAspect
@@ -483,7 +494,9 @@ final class VideoPlaybackNSView: NSView {
         fadeSeconds = adjustedFade
         audioIsEnabled = audioEnabled
         baseVolume = adjustedVolume
-        meterProgramGain = programGain
+        meterPreFaderGain = preFaderGain
+        meterFaderGain = faderGain
+        meterNominalVolume = volume
         self.meterScope = meterScope
         updateMeterParameters()
         if !requiresRestart {
@@ -493,10 +506,10 @@ final class VideoPlaybackNSView: NSView {
             primary?.isMuted = !audioIsEnabled
             standby?.isMuted = !audioIsEnabled
             if behavior == .loop || behavior == .holdLastFrame {
-                primary?.volume = baseVolume
+                primary?.volume = audibleVolume
             }
             if behavior == .softLoop && !blendStarted {
-                primary?.volume = baseVolume
+                primary?.volume = audibleVolume
                 standby?.volume = 0
             }
             return
@@ -515,7 +528,7 @@ final class VideoPlaybackNSView: NSView {
             AudioOutputRouting.apply(to: queue)
             queue.actionAtItemEnd = .advance
             queue.isMuted = !audioIsEnabled
-            queue.volume = baseVolume
+            queue.volume = audibleVolume
             let item = AVPlayerItem(url: url)
             meterPrimaryID = LiveAudioMeters.shared.attach(item: item, to: queue, scope: meterScope)
             updateMeterParameters()
@@ -558,7 +571,7 @@ final class VideoPlaybackNSView: NSView {
         let meter = LiveAudioMeters.shared.attach(item: item, to: player, scope: meterScope)
         AudioOutputRouting.apply(to: player)
         player.isMuted = !audioIsEnabled
-        player.volume = baseVolume
+        player.volume = audibleVolume
         return (player, meter)
     }
 
@@ -566,10 +579,14 @@ final class VideoPlaybackNSView: NSView {
     /// let the mixer account for per-slide gain and master gain. AVPlayer's
     /// current volume is also inspected to follow video end fades/soft loops.
     private func updateMeterParameters() {
-        LiveAudioMeters.shared.configure(meterPrimaryID, programGain: meterProgramGain,
-                                          nominalPlayerGain: Double(baseVolume))
-        LiveAudioMeters.shared.configure(meterStandbyID, programGain: meterProgramGain,
-                                          nominalPlayerGain: Double(baseVolume))
+        LiveAudioMeters.shared.configure(meterPrimaryID,
+                                         preFaderGain: meterPreFaderGain,
+                                         faderGain: meterFaderGain,
+                                         nominalPlayerGain: meterNominalVolume)
+        LiveAudioMeters.shared.configure(meterStandbyID,
+                                         preFaderGain: meterPreFaderGain,
+                                         faderGain: meterFaderGain,
+                                         nominalPlayerGain: meterNominalVolume)
     }
 
     /// Call only on main; both AVPlayer's periodic handler and end notification
@@ -638,10 +655,10 @@ final class VideoPlaybackNSView: NSView {
             break
         case .fadeOut:
             setAlphas(primary: Float(1 - progress), standby: 0, black: 0)
-            primary?.volume = baseVolume * Float(1 - progress)
+            primary?.volume = audibleVolume * Float(1 - progress)
         case .fadeToBlack:
             setAlphas(primary: 1, standby: 0, black: Float(progress))
-            primary?.volume = baseVolume * Float(1 - progress)
+            primary?.volume = audibleVolume * Float(1 - progress)
         case .softLoop:
             if remaining <= effectiveFade && !blendStarted {
                 blendStarted = true
@@ -651,8 +668,8 @@ final class VideoPlaybackNSView: NSView {
             }
             if blendStarted {
                 setAlphas(primary: Float(1 - progress), standby: Float(progress), black: 0)
-                primary?.volume = baseVolume * Float(1 - progress)
-                standby?.volume = baseVolume * Float(progress)
+                primary?.volume = audibleVolume * Float(1 - progress)
+                standby?.volume = audibleVolume * Float(progress)
             }
             // Periodic callbacks need not fire exactly at the endpoint. The
             // AVPlayerItem end notification also serves as a fallback.
@@ -675,7 +692,7 @@ final class VideoPlaybackNSView: NSView {
         primaryIsA.toggle()
         blendStarted = false
         setAlphas(primary: 1, standby: 0, black: 0)
-        incoming.volume = baseVolume
+        incoming.volume = audibleVolume
         incoming.isMuted = !audioIsEnabled
         // Keep the just-rewound former primary preloaded for next time.
         lastKnownDuration = 0

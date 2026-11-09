@@ -13,6 +13,8 @@ struct AudioPlaybackSurface: NSViewRepresentable {
     var audible: Bool
     var volume: Double
     var loops: Bool
+    var preFaderGain: Double = 1
+    var faderGain: Double = 1
 
     func makeNSView(context: Context) -> AudioPlaybackHostView {
         let view = AudioPlaybackHostView(frame: .zero)
@@ -24,7 +26,7 @@ struct AudioPlaybackSurface: NSViewRepresentable {
         view.configure(path: path, session: playbackSessionID,
                        scope: outputScope, audible: audible,
                        volume: volume * liveAudioMix.effectiveProgramGain,
-                       programGain: volume, loops: loops)
+                       preFaderGain: preFaderGain, faderGain: faderGain, loops: loops)
     }
 
     static func dismantleNSView(_ view: AudioPlaybackHostView, coordinator: ()) {
@@ -37,16 +39,19 @@ final class AudioPlaybackHostView: NSView {
     private var key: AudioPlaybackPool.Key?
 
     func configure(path: String, session: UUID, scope: String, audible: Bool,
-                   volume: Double, programGain: Double, loops: Bool) {
+                   volume: Double, preFaderGain: Double, faderGain: Double,
+                   loops: Bool) {
         let next = AudioPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                          scope: scope, sessionID: session)
-        if key != next {
+        let newlyAttached = key != next
+        if newlyAttached {
             unbind()
             key = next
             AudioPlaybackPool.shared.attach(next, hostID: hostID, loops: loops)
         }
         AudioPlaybackPool.shared.configure(next, audible: audible, volume: volume,
-                                           programGain: programGain)
+                                           preFaderGain: preFaderGain, faderGain: faderGain)
+        if newlyAttached { AudioPlaybackPool.shared.resume(next) }
     }
 
     func unbind() {
@@ -91,7 +96,7 @@ final class AudioPlaybackPool {
             }
             AudioOutputRouting.apply(to: player)
             player.isMuted = true
-            player.play()
+            player.volume = 0 // fail closed until the first configure()
         }
     }
 
@@ -117,15 +122,27 @@ final class AudioPlaybackPool {
         }
         entry.evictionGeneration += 1
         entry.hosts.insert(hostID)
-        entry.player.play()
+        // The host resumes playback after the new audio state is installed.
     }
 
-    func configure(_ key: Key, audible: Bool, volume: Double, programGain: Double) {
+    func configure(_ key: Key, audible: Bool, volume: Double,
+                   preFaderGain: Double, faderGain: Double) {
         guard let entry = entries[key] else { return }
-        entry.player.isMuted = !audible
-        entry.player.volume = Float(max(0, min(volume, 1)))
-        LiveAudioMeters.shared.configure(entry.meterID, programGain: programGain,
-                                          nominalPlayerGain: volume)
+        if !audible {
+            entry.player.isMuted = true
+            entry.player.volume = 0
+        } else {
+            entry.player.volume = Float(max(0, min(volume, 1)))
+            entry.player.isMuted = false
+        }
+        LiveAudioMeters.shared.configure(entry.meterID,
+                                         preFaderGain: preFaderGain, faderGain: faderGain,
+                                         nominalPlayerGain: volume)
+    }
+
+    func resume(_ key: Key) {
+        guard let entry = entries[key] else { return }
+        entry.player.play()
     }
 
     func detach(_ key: Key, hostID: UUID) {

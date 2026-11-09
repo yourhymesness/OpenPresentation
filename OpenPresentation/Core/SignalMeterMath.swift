@@ -18,6 +18,23 @@ struct MeterSourceContribution {
     var gain: Double
 }
 
+/// Smooth meter ballistics at display refresh cadence, independent from
+/// AVFoundation's decoded-sample polling cadence.
+enum MeterBallistics {
+    static func follow(current: Double, target: Double, elapsed: Double,
+                       attack: Double = 0.030, release: Double = 0.240) -> Double {
+        guard current.isFinite, target.isFinite else { return 0 }
+        let dt = min(0.1, max(0, elapsed.isFinite ? elapsed : 0))
+        let tau = target > current ? attack : release
+        let alpha = 1 - exp(-dt / max(0.001, tau))
+        return max(0, min(1, current + (target - current) * alpha))
+    }
+    static func peakPosition(height: Double, fraction: Double) -> Double {
+        guard height.isFinite, height > 2 else { return 0 }
+        return min(height - 1, max(1, height * (1 - max(0, min(1, fraction)))))
+    }
+}
+
 enum SignalMeterMath {
     static func decibels(_ amplitude: Double) -> Double {
         guard amplitude.isFinite, amplitude > 0 else { return -.infinity }

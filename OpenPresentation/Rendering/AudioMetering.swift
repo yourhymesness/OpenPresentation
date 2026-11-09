@@ -179,15 +179,20 @@ final class LiveAudioMeters: ObservableObject {
         weak var player: AVPlayer?
         let scope: String
         let taps: [PCMAccumulator]
-        var programGain: Double
+        /// Source volume and transition fade, before the cue fader.
+        var preFaderGain: Double
+        /// Cue fader: excluded from Program, included in Master.
+        var faderGain: Double
+        /// Baseline AVPlayer volume before soft-loop and end fades.
         var nominalPlayerGain: Double
 
         init(player: AVPlayer, scope: String, taps: [PCMAccumulator],
-             programGain: Double, nominalPlayerGain: Double) {
+             preFaderGain: Double, faderGain: Double, nominalPlayerGain: Double) {
             self.player = player
             self.scope = scope
             self.taps = taps
-            self.programGain = programGain
+            self.preFaderGain = preFaderGain
+            self.faderGain = faderGain
             self.nominalPlayerGain = nominalPlayerGain
         }
     }
@@ -199,14 +204,16 @@ final class LiveAudioMeters: ObservableObject {
         guard !taps.isEmpty else { return nil }
         let id = UUID()
         sources[id] = Source(player: player, scope: scope, taps: taps,
-                             programGain: 1, nominalPlayerGain: 1)
+                             preFaderGain: 1, faderGain: 1, nominalPlayerGain: 1)
         return id
     }
 
-    func configure(_ id: UUID?, programGain: Double, nominalPlayerGain: Double) {
+    func configure(_ id: UUID?, preFaderGain: Double, faderGain: Double,
+                   nominalPlayerGain: Double) {
         guard let id, let source = sources[id] else { return }
-        source.programGain = min(1, max(0, programGain))
-        source.nominalPlayerGain = min(1, max(0, nominalPlayerGain))
+        source.preFaderGain = preFaderGain.isFinite ? max(0, preFaderGain) : 0
+        source.faderGain = faderGain.isFinite ? min(1, max(0, faderGain)) : 0
+        source.nominalPlayerGain = nominalPlayerGain.isFinite ? max(0, nominalPlayerGain) : 0
     }
 
     func remove(_ id: UUID?) {
@@ -235,9 +242,12 @@ final class LiveAudioMeters: ObservableObject {
                 let envelope = source.nominalPlayerGain > 0.00001
                     ? min(1, currentGain / source.nominalPlayerGain)
                     : 1
-                let programGain = source.programGain * envelope
-                beforeMaster.append(MeterSourceContribution(signal: signal, gain: programGain))
-                atMaster.append(MeterSourceContribution(signal: signal, gain: programGain * masterGain))
+                // Cue meters stay PRE-fader, even when its fader is at zero.
+                // Master is POST the cue and master faders.
+                let preFader = source.preFaderGain * envelope
+                beforeMaster.append(MeterSourceContribution(signal: signal, gain: preFader))
+                atMaster.append(MeterSourceContribution(signal: signal,
+                                                        gain: preFader * source.faderGain * masterGain))
             }
         }
         for id in staleIDs { sources.removeValue(forKey: id) }

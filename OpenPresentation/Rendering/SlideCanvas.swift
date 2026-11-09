@@ -240,7 +240,9 @@ struct SlideCanvas: View {
                                      outputScope: outputScope,
                                      audible: allowsVideoAudio,
                                      volume: layer.resolvedAudioVolume * cueAudioGain * (continuingVideoPaths.contains(VideoTakePlanner.canonical(path)) ? 1.0 : transitionAudioGain),
-                                     loops: layer.audioLoops ?? false)
+                                     loops: layer.audioLoops ?? false,
+                                     preFaderGain: layer.resolvedAudioVolume * (continuingVideoPaths.contains(VideoTakePlanner.canonical(path)) ? 1.0 : transitionAudioGain),
+                                     faderGain: cueAudioGain)
                     .frame(width: 1, height: 1)
                     .opacity(0.001)
                     .allowsHitTesting(false)
@@ -268,7 +270,10 @@ struct SlideCanvas: View {
                                  volume: volume, contentMode: contentMode,
                                  outputScope: outputScope, sourceSlot: sourceSlot,
                                  audioGain: cueAudioGain * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
-                                     ? 1.0 : transitionAudioGain))
+                                     ? 1.0 : transitionAudioGain),
+                                 preFaderGain: volume * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
+                                     ? 1.0 : transitionAudioGain),
+                                 faderGain: cueAudioGain)
                 .frame(width: width, height: height)
                 .clipped()
         } else {
