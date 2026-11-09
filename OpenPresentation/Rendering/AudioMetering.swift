@@ -25,7 +25,13 @@ private final class PCMAccumulator {
     /// cannot be acquired, skip this packet rather than risk a playback glitch.
     func capture(_ rawBuffers: UnsafeMutablePointer<AudioBufferList>, frames: Int) {
         guard frames > 0 else { return }
+        // The Swift lock closure is @Sendable. Pass the short-lived pointer as
+        // a plain address and reconstruct it inside the synchronous closure.
+        // No pointer escapes this audio callback.
+        let bufferAddress = UInt(bitPattern: UnsafeMutableRawPointer(rawBuffers))
         _ = lock.withLockIfAvailable { state in
+            let rawBuffers = UnsafeMutableRawPointer(bitPattern: bufferAddress)!
+                .assumingMemoryBound(to: AudioBufferList.self)
             let format = state.format
             guard format.mFormatID == kAudioFormatLinearPCM,
                   format.mFormatFlags & kAudioFormatFlagIsBigEndian == 0 else { return }
@@ -120,21 +126,19 @@ private enum LocalPCMMonitor {
                 clientInfo: retained,
                 init: { _, info, out in out.pointee = info },
                 finalize: { tap in
-                    if let info = MTAudioProcessingTapGetStorage(tap) {
-                        Unmanaged<PCMAccumulator>.fromOpaque(info).release()
-                    }
+                    let info = MTAudioProcessingTapGetStorage(tap)
+                    Unmanaged<PCMAccumulator>.fromOpaque(info).release()
                 },
                 prepare: { tap, _, format in
-                    if let info = MTAudioProcessingTapGetStorage(tap) {
-                        Unmanaged<PCMAccumulator>.fromOpaque(info).takeUnretainedValue().prepare(format.pointee)
-                    }
+                    let info = MTAudioProcessingTapGetStorage(tap)
+                    Unmanaged<PCMAccumulator>.fromOpaque(info).takeUnretainedValue().prepare(format.pointee)
                 },
                 unprepare: { _ in },
                 process: { tap, requestedFrames, _, buffers, framesOut, flagsOut in
                     let status = MTAudioProcessingTapGetSourceAudio(tap, requestedFrames,
                                                                     buffers, flagsOut, nil, framesOut)
-                    guard status == noErr, framesOut.pointee > 0,
-                          let info = MTAudioProcessingTapGetStorage(tap) else { return }
+                    guard status == noErr, framesOut.pointee > 0 else { return }
+                    let info = MTAudioProcessingTapGetStorage(tap)
                     Unmanaged<PCMAccumulator>.fromOpaque(info).takeUnretainedValue()
                         .capture(buffers, frames: Int(framesOut.pointee))
                 }
