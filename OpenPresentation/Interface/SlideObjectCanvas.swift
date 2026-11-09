@@ -343,9 +343,7 @@ private struct SelectedLayerOverlay: View {
                             y: constrain(top + height * handle.fy, 14, ch - 14)
                         )
                         .highPriorityGesture(resizeGesture(for: handle))
-                        .help(layer.resolvedAspectRatioLocked
-                              ? "Resize \(handle.rawValue), aspect locked"
-                              : "Resize \(handle.rawValue), free width/height")
+                        .help("Drag to resize. Hold Option (⌥) to stretch freely; media pixels stretch to the new frame.")
                 }
             }
         }
@@ -358,15 +356,17 @@ private struct SelectedLayerOverlay: View {
                 guard !layer.isLocked else { return }
                 if resizeStart == nil { resizeStart = layer }
                 guard let original = resizeStart else { return }
+                let freeStretch = NSEvent.modifierFlags.contains(.option)
                 let resized = LayerGeometry(layer: original).resizing(
                     from: handle,
                     deltaX: Double(value.translation.width),
                     deltaY: Double(value.translation.height),
                     canvasWidth: Double(canvasSize.width),
                     canvasHeight: Double(canvasSize.height),
-                    keepRatio: original.resolvedAspectRatioLocked
+                    keepRatio: original.resolvedAspectRatioLocked && !freeStretch
                 )
                 resized.applied(to: &layer)
+                layer.applyResizeModifier(freeStretch: freeStretch)
             }
             .onEnded { _ in
                 if let original = resizeStart, original != layer {

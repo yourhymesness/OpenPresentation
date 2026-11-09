@@ -318,14 +318,14 @@ private struct SlideVectorShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         switch kind {
-        case .rectangle:
+        case .rectangle, .square:
             path.addRect(rect)
         case .roundedRectangle:
             path.addRoundedRect(in: rect, cornerSize: CGSize(width: min(rect.width, rect.height) * 0.15,
                                                              height: min(rect.width, rect.height) * 0.15))
-        case .ellipse:
+        case .ellipse, .circle:
             path.addEllipse(in: rect)
-        case .triangle:
+        case .triangle, .equilateralTriangle:
             path.move(to: CGPoint(x: rect.midX, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
             path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))

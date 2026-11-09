@@ -1,3 +1,9 @@
+## Implemented in v0.3.2
+
+- Media frames lock proportions by default, with Option (⌥) drag for independent X/Y stretching.
+- Fit/Fill/Stretch pixel mapping in image and video inspector.
+- Square, Circle, and Equilateral Triangle vector presets and shape conversion at pixel-correct dimensions.
+
 ## Implemented in v0.3.1
 
 - Searchable font browser with font names and `Aa Bb 123` samples displayed in their own typefaces.
@@ -12,7 +18,7 @@
 - [x] Optional aspect-ratio lock
 - [x] Exact pixel X/Y/width/height editing (1920×1080 canvas)
 - [ ] Full undo/redo coverage for dragging, resizing, and attribute changes
-- [ ] Font browser with sample names drawn in their actual typefaces and non-destructive hover preview
+- [x] Font browser with sample names drawn in their actual typefaces and non-destructive hover preview
 - [ ] More granular group transforms, alignment/distribution tools
 
 ## v0.4 — Variable-size project canvas

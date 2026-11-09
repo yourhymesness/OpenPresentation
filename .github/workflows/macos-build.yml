@@ -32,3 +32,9 @@ jobs:
           swiftc OpenPresentation/Core/PresentationSlide.swift \
             Tests/FontHoverPreview.swift -o /tmp/font-hover-preview
           /tmp/font-hover-preview
+      - name: Test media stretch and fixed-proportion shapes
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            OpenPresentation/Core/CanvasSnapping.swift \
+            Tests/MediaStretchAndShapes.swift -o /tmp/media-shape-tests
+          /tmp/media-shape-tests

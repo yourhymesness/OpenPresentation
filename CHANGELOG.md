@@ -1,3 +1,12 @@
+# v0.3.2 — Media stretching and precise shape presets
+
+- Images, animated GIFs, and videos now maintain resize proportions by default; hold Option (⌥) during any of the eight resize-handle drags to temporarily allow free X/Y stretching. Option-drag also selects Stretch media pixel mapping so the content visibly distorts rather than letterboxing.
+- Added an explicit Media pixels option (Fit / Fill / Stretch) to image/video layer attributes, retaining existing right-click presets and the persistent Lock ratio toggle.
+- Added Square, Circle and Equilateral Triangle as new shape types in Add Object and the Shape inspector. Their initial pixel geometry is mathematically constrained: 280×280 for squares/circles and 320×277.13 for equilateral triangles.
+- Changing an existing object to one of the constrained shapes normalizes its pixel aspect ratio within canvas bounds. Constrained shapes lock aspect ratio by default but can be deliberately overridden with Option.
+- Existing Rectangle, Ellipse, Triangle and rounded rectangle behavior is retained, and older show files remain compatible (new enum cases, no new required saved fields).
+- Added pure tests for media lock/override behavior, shape proportions, and round-trip serialization. Full macOS Xcode build is verified by GitHub Actions after publishing.
+
 # v0.3.1 — Visual Font Browser (Alpha)
 
 - Replaced the native font Picker with a searchable floating font browser. Installed font families are displayed in their own typefaces, with an “Aa Bb 123” sample.

@@ -1,3 +1,13 @@
+# OpenPresentation v0.3.2 — Free Stretch and Shape Presets
+
+Images/videos/GIFs maintain their rectangle's aspect ratio by default. Hold **⌥ Option while dragging any resize handle** to stretch X/Y independently; this activates **Media pixels: Stretch (distort)** for visual pixels (not merely the frame). The inspector exposes **Media pixels: Fit / Fill / Stretch** and the persistent **Lock ratio** toggle. Use Fit or Fill to restore normal pixel mapping. Audio playback is unaffected.
+
+**Add Object** now includes **Square**, **Circle**, and **Equilateral Triangle**, all created at proper pixel proportions on the current 1920×1080 canvas. Changing an existing shape to one of these presets also normalizes its proportions. Regular Rectangle/Ellipse/Triangle remain freely resizable.
+
+**Testing:** Resize a picture/video using ordinary drag, Option-drag it into unusual proportions, switch Fit/Fill/Stretch, use Undo to restore, then add and transform each new shape. Verify existing shows still open. GitHub Actions builds and tests macOS source after push; native runtime still needs operator verification.
+
+---
+
 # OpenPresentation
 
 **Open-source live presentation software for macOS (Apple Silicon first)**, developed by HiTech Productions.
@@ -33,7 +43,7 @@ In Blind mode, select a text layer, open the **Font** control in the layer inspe
 - Precise **X, Y, W and H** attributes in pixels on the current **1920×1080** presentation canvas (X/Y measure the layer's top-left corner).
 - Existing Blind/Live workflow, media rendering and show-file format retained.
 
-Older v5 show documents remain compatible: the new aspect-lock setting is optional and defaults to unlocked. **Variable project canvas sizes are planned**, not yet implemented. The v0.3.1 font hover browser previews in Blind only.
+Older v5 show documents remain compatible: the aspect-lock setting is optional. Starting in v0.3.2, image/video layers default to locked proportions when the field is absent, while older shape/text layers remain free-resize by default. **Variable project canvas sizes are planned**, not yet implemented. The v0.3.1 font hover browser previews in Blind only.
 
 ## Limitations
 

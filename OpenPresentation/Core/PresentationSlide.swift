@@ -55,7 +55,20 @@ enum SlideShapeKind: String, Codable, CaseIterable, Identifiable {
     case roundedRectangle = "Rounded Rectangle"
     case ellipse = "Ellipse"
     case triangle = "Triangle"
+    case square = "Square"
+    case circle = "Circle"
+    case equilateralTriangle = "Equilateral Triangle"
     var id: String { rawValue }
+
+    /// Pixel width / pixel height for constrained shapes. The standard
+    /// Rectangle / Ellipse / Triangle still allow unconstrained frames.
+    var intrinsicPixelAspect: Double? {
+        switch self {
+        case .square, .circle: return 1
+        case .equilateralTriangle: return 2 / sqrt(3)
+        default: return nil
+        }
+    }
 }
 
 enum LayerOrderAction: String, CaseIterable {
@@ -126,7 +139,37 @@ struct SlideLayer: Identifiable, Codable, Equatable {
     /// Optional for backward compatibility with older v5 shows. A value of
     /// false allows independent X/Y resizing of text, shapes and media.
     var aspectRatioLocked: Bool? = nil
-    var resolvedAspectRatioLocked: Bool { aspectRatioLocked ?? false }
+    /// Images/video preserve their frame ratio by default. Option-drag can
+    /// temporarily override the lock; a user may also disable it in Inspector.
+    /// Fixed-proportion shapes default to maintaining the correct geometry.
+    var resolvedAspectRatioLocked: Bool {
+        aspectRatioLocked ?? (kind == .image || kind == .video ||
+            (kind == .shape && resolvedShapeKind.intrinsicPixelAspect != nil))
+    }
+
+    /// Temporarily unlock a constrained frame while dragging. A stretched
+    /// image/video must also map its actual pixels into the new rectangle,
+    /// otherwise Fit would just letterbox inside the distorted bounds.
+    mutating func applyResizeModifier(freeStretch: Bool) {
+        if freeStretch && (kind == .image || kind == .video) {
+            contentMode = .stretch
+        }
+    }
+
+    /// Changing shape type in the inspector makes Circle/Square/Equilateral
+    /// geometrically correct even if the original was an arbitrary rectangle.
+    /// Preserve the center and fit the converted shape within the slide.
+    mutating func selectShape(_ shape: SlideShapeKind) {
+        shapeKind = shape
+        guard kind == .shape, let aspect = shape.intrinsicPixelAspect else { return }
+        aspectRatioLocked = true
+        let maxW = max(0.0001, 2 * min(centerX, 1 - centerX))
+        let maxH = max(0.0001, 2 * min(centerY, 1 - centerY))
+        let pixelW = min(width * 1920, height * 1080 * aspect,
+                         maxW * 1920, maxH * 1080 * aspect)
+        width = pixelW / 1920
+        height = pixelW / aspect / 1080
+    }
 
     var resolvedContentMode: LayerContentMode { contentMode ?? .fit }
 
@@ -223,9 +266,20 @@ struct SlideLayer: Identifiable, Codable, Equatable {
     }
 
     static func makeShape(_ kind: SlideShapeKind) -> SlideLayer {
-        SlideLayer(name: kind.rawValue, kind: .shape, width: 0.30, height: 0.28,
-                   shapeKind: kind, shapeFillHex: "#4F90D9",
-                   shapeStrokeHex: "#FFFFFF", shapeStrokeWidth: 0)
+        let size: (width: Double, height: Double)
+        switch kind {
+        case .square, .circle:
+            size = (280 / 1920, 280 / 1080)
+        case .equilateralTriangle:
+            size = (320 / 1920, (320 * sqrt(3) / 2) / 1080)
+        default:
+            size = (0.30, 0.28)
+        }
+        return SlideLayer(name: kind.rawValue, kind: .shape,
+                          width: size.width, height: size.height,
+                          aspectRatioLocked: kind.intrinsicPixelAspect != nil ? true : nil,
+                          shapeKind: kind, shapeFillHex: "#4F90D9",
+                          shapeStrokeHex: "#FFFFFF", shapeStrokeWidth: 0)
     }
 
     static func makeAudio(path: String, name: String = "Audio") -> SlideLayer {

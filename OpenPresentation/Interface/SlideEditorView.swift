@@ -182,7 +182,7 @@ struct SlideEditorView: View {
                         .focused($canvasFocused)
                         .overlay(RoundedRectangle(cornerRadius: 5)
                             .stroke(Color.gray.opacity(0.4), lineWidth: 1))
-                    Text("Shift-click to select multiple layers; drag to move together. Cyan guides show snapping.")
+                    Text("Shift-click to select multiple layers; Option-drag a resize handle to stretch. Cyan guides show snapping.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -739,7 +739,7 @@ struct SlideEditorView: View {
                         ))
                         .font(.caption2)
                         .controlSize(.mini)
-                        .help("Preserve this layer's pixel aspect ratio when resizing")
+                        .help("Maintain proportions while resizing. Hold Option (⌥) during drag to override temporarily.")
                     }
                     HStack(spacing: 6) {
                         pixelField("X", field: .x, binding: binding)
@@ -763,6 +763,22 @@ struct SlideEditorView: View {
                     Text("\(Int((binding.wrappedValue.resolvedOpacity * 100).rounded()))%")
                         .font(.caption2.monospacedDigit()).frame(width: 38, alignment: .trailing)
                 }
+            }
+
+            if binding.wrappedValue.kind == .image || binding.wrappedValue.kind == .video {
+                Picker("Media pixels", selection: Binding(
+                    get: { binding.wrappedValue.resolvedContentMode },
+                    set: { binding.wrappedValue.contentMode = $0 }
+                )) {
+                    Text("Fit (letterbox)").tag(LayerContentMode.fit)
+                    Text("Fill (crop)").tag(LayerContentMode.fill)
+                    Text("Stretch (distort)").tag(LayerContentMode.stretch)
+                }
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                Text("Aspect ratio is locked by default. Hold ⌥ Option while dragging any resize handle to stretch freely; this also switches media pixels to Stretch.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
             if binding.wrappedValue.kind == .text {
@@ -835,7 +851,11 @@ struct SlideEditorView: View {
                     .foregroundStyle(.secondary)
                 Picker("Shape", selection: Binding(
                     get: { binding.wrappedValue.resolvedShapeKind },
-                    set: { binding.wrappedValue.shapeKind = $0 }
+                    set: {
+                        var shape = binding.wrappedValue
+                        shape.selectShape($0)
+                        binding.wrappedValue = shape
+                    }
                 )) {
                     ForEach(SlideShapeKind.allCases) { shape in Text(shape.rawValue).tag(shape) }
                 }
@@ -871,7 +891,7 @@ struct SlideEditorView: View {
                 Text("IMAGE LAYER")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.secondary)
-                Text("Drag to move, use the corner handle to resize, or right-click the image for Fit, Fill, Stretch and Original Size.")
+                Text("Drag any of the eight resize handles. Hold ⌥ Option to stretch without maintaining the original proportions.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -923,7 +943,7 @@ struct SlideEditorView: View {
                         get: { binding.wrappedValue.resolvedVideoVolume },
                         set: { binding.wrappedValue.videoVolume = $0 })
                 )
-                Text("Drag to move, use the corner handle to resize, or right-click for Fit, Fill, Stretch and Original Size.")
+                Text("Drag any resize handle; hold ⌥ Option to stretch video pixels. Audio playback stays unchanged.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
