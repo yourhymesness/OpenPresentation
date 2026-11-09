@@ -289,6 +289,16 @@ struct SlideLayer: Identifiable, Codable, Equatable {
     var fontFamily: String = "Helvetica Neue"
     var fontSize: Double = 112
     var textColorHex: String = "#FFFFFF"
+    // Optional so pre-v0.4.1 shows decode with no outline (their original look).
+    // The thickness is measured in authored canvas pixels and scaled by the
+    // shared renderer, so Preview and Program have identical outlines.
+    var textOutlineColorHex: String? = nil
+    var textOutlineWidth: Double? = nil
+    var resolvedTextOutlineColor: String { textOutlineColorHex ?? "#000000" }
+    var resolvedTextOutlineWidth: Double {
+        guard let textOutlineWidth, textOutlineWidth.isFinite else { return 0 }
+        return min(24, max(0, textOutlineWidth))
+    }
     var textAlignment: SlideTextAlignment = .center
     // Optional so older v5 show files still decode with synthesized Codable.
     var shapeKind: SlideShapeKind? = nil

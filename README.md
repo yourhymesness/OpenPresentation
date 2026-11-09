@@ -1,3 +1,9 @@
+# OpenPresentation v0.4.1 Alpha — Zoom and Text Outlines
+
+**Blind Editor zoom:** The bottom-left zoom dropdown offers **Zoom to Fill** and percentage presets. Scroll the mouse wheel over the canvas or pinch on a trackpad to zoom in/out. Shift+scroll or the scrollbars pan an enlarged slide. Zoom is a view-only setting; it never changes Program or the saved show.
+
+**Text outlines:** Select a text layer and set **Text outline** color and **Outline width** (in authored pixels). A black outline of 2–4 px around white text helps on busy backgrounds. Outlines render consistently in Preview and Program. Existing shows have no outline unless you enable it.
+
 # OpenPresentation v0.4.0 Alpha — Custom Canvas Sizes
 
 OpenPresentation now supports configurable *authored* canvas dimensions instead of forcing every show to 1920×1080. Select **File → New Show… (⌘N)** and choose a preset or enter custom width and height (64–8192 px). The chooser previews the aspect ratio before you create the show.

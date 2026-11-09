@@ -45,3 +45,9 @@ jobs:
             OpenPresentation/Storage/ProjectStore.swift \
             Tests/CanvasSizePersistence.swift -o /tmp/canvas-size-tests
           /tmp/canvas-size-tests
+      - name: Test zoom math and text outline persistence
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            OpenPresentation/Core/CanvasZoom.swift \
+            Tests/CanvasZoomAndTextOutline.swift -o /tmp/zoom-outline
+          /tmp/zoom-outline

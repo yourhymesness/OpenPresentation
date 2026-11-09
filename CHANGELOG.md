@@ -1,3 +1,13 @@
+# v0.4.1 — Blind Editor Zoom and Text Outlines
+
+- Added a bottom-left **Zoom** menu to the Blind layer editor with Zoom to Fill and 10%, 25%, 50%, 75%, 100%, 125%, 150%, 200%, and 400% presets. Zoom to Fill is the default and adjusts to the available editor area.
+- Mouse wheel zooms while the pointer is over the canvas. Trackpad pinch zooms. Hold Shift while scrolling to pan an enlarged canvas; scrollbars are available too. Zoom is a **view-only** setting; layer coordinates, saved shows, and Program output do not change.
+- Added **Text outline** color and **Outline width** controls in the text inspector. The default is black, 0 px (off), so existing shows look unchanged. Try 2–4 px black outlines around white text for contrast.
+- Outlined text is drawn in the shared renderer (Preview, thumbnails, Program, external outputs). Width is in authored canvas pixels and scales along with text.
+- Text outline settings are optional per-layer show metadata, compatible with the existing v6 show format and older v1–v5 migrated shows.
+- Added a portable test for zoom scaling, input gestures and optional outline persistence, plus macOS CI build coverage.
+- **Testing note:** Verify mouse-wheel interception and trackpad magnification with real macOS hardware; pure Swift tests do not exercise AppKit events.
+
 # v0.4.0-alpha — Custom Presentation Canvases
 
 - New Show (⌘N) opens a canvas setup sheet with HD/Full HD/4K, 9:16 portrait, square and ultrawide/LED presets, plus editable custom width and height (64–8192 pixels).

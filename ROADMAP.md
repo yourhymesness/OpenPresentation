@@ -1,3 +1,9 @@
+## v0.4.1 — Blind Editor Zoom and Text Outlines (Implemented)
+
+- Editor-only wheel/pinch/preset/Zoom to Fill; scroll an enlarged slide.
+- Text outline color and pixel thickness, rendered in both Preview and Program.
+- Preserve optional metadata compatibility with older shows.
+
 ## v0.4.1 — Planned existing-show canvas resizing
 
 - Add a deliberate **Change Show Canvas** command with a visible preview, confirmation and Undo.

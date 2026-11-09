@@ -186,14 +186,8 @@ struct SlideCanvas: View {
         let y = CGFloat(layer.centerY) * canvasHeight
         switch layer.kind {
         case .text:
-            Text(layer.text)
-                .font(.custom(layer.fontFamily, size: max(5, CGFloat(layer.fontSize) * scale)))
-                .foregroundStyle(Color(hex: layer.textColorHex))
-                .multilineTextAlignment(layer.textAlignment.swiftUIAlignment)
-                .minimumScaleFactor(0.25)
-                .lineLimit(nil)
-                .frame(width: boxWidth, height: boxHeight, alignment: .center)
-                .clipped()
+            OutlinedSlideText(layer: layer, scale: scale,
+                              boxWidth: boxWidth, boxHeight: boxHeight)
                 .position(x: x, y: y)
                 .opacity(layer.resolvedOpacity)
         case .shape:
@@ -292,6 +286,47 @@ struct SlideCanvas: View {
             .frame(width: width, height: height)
             .clipped()
         }
+    }
+}
+
+
+/// Text outline is composed of crisp offset copies of the same SwiftUI text.
+/// Unlike the editor-only selection rectangle, it is part of the shared slide
+/// renderer and therefore appears on thumbnails, Preview, Program and output.
+/// A zero width draws only the original text, preserving older shows exactly.
+private struct OutlinedSlideText: View {
+    let layer: SlideLayer
+    let scale: CGFloat
+    let boxWidth: CGFloat
+    let boxHeight: CGFloat
+
+    var body: some View {
+        let thickness = CGFloat(layer.resolvedTextOutlineWidth) * scale
+        ZStack {
+            if thickness > 0.001 {
+                // Sixteen angles fill in the diagonal gaps left by 8-direction
+                // outlines. All copies use identical wrapping and scaling.
+                ForEach(0..<16, id: \.self) { step in
+                    let angle = Double(step) * (.pi / 8)
+                    text(color: Color(hex: layer.resolvedTextOutlineColor))
+                        .offset(x: thickness * CGFloat(cos(angle)),
+                                y: thickness * CGFloat(sin(angle)))
+                }
+            }
+            text(color: Color(hex: layer.textColorHex))
+        }
+        .frame(width: boxWidth, height: boxHeight)
+        .clipped()
+    }
+
+    private func text(color: Color) -> some View {
+        Text(layer.text)
+            .font(.custom(layer.fontFamily, size: max(5, CGFloat(layer.fontSize) * scale)))
+            .foregroundStyle(color)
+            .multilineTextAlignment(layer.textAlignment.swiftUIAlignment)
+            .minimumScaleFactor(0.25)
+            .lineLimit(nil)
+            .frame(width: boxWidth, height: boxHeight, alignment: .center)
     }
 }
 

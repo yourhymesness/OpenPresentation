@@ -70,6 +70,9 @@ struct SlideEditorView: View {
     @State private var isFontBrowserPresented = false
     @State private var fontSearch = ""
     @State private var hoveredFontFamily: String?
+    // Editor-only zoom; it is deliberately not part of PresentationSlide.
+    @State private var zoomToFill = true
+    @State private var zoomScale = 1.0
 
     private let maxImportedImageSize = 30_000_000
     private let maxLayersPerSlide = 40
@@ -160,32 +163,84 @@ struct SlideEditorView: View {
 
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    SlideObjectCanvas(slide: $slide,
-                                      selectedLayerID: $selectedLayerID,
-                                      selectedLayerIDs: $selectedLayerIDs,
-                                      snapToGuides: snapToGuides,
-                                      canvasSize: canvasSize,
-                                      previewFontLayerID: fontPreviewLayerID,
-                                      previewFontFamily: hoveredFontFamily,
-                                      onScaleLayer: { id, preset in scaleLayer(id, preset: preset) },
-                                      onResizeCompleted: { original in
-                                          var before = slide
-                                          if let index = before.layers.firstIndex(where: { $0.id == original.id }) {
-                                              before.layers[index] = original
-                                              controller?.recordLayerChangeUndo(before: before, name: "Resize Layer")
-                                          }
-                                      },
-                                      onReorderLayer: { id, action in reorderLayer(id, action: action) },
-                                      onPaste: { pasteFromClipboard() })
-                        .frame(maxWidth: .infinity)
-                        .frame(height: canvasHeight)
-                        .focusable()
-                        .focused($canvasFocused)
+                    GeometryReader { viewport in
+                        let fit = CanvasZoom.fitScale(
+                            canvas: canvasSize,
+                            viewportWidth: Double(viewport.size.width),
+                            viewportHeight: Double(viewport.size.height))
+                        let current = zoomToFill ? fit : zoomScale
+                        let renderedWidth = CGFloat(canvasSize.width) * current
+                        let renderedHeight = CGFloat(canvasSize.height) * current
+
+                        ScrollView([.horizontal, .vertical]) {
+                            SlideObjectCanvas(slide: $slide,
+                                              selectedLayerID: $selectedLayerID,
+                                              selectedLayerIDs: $selectedLayerIDs,
+                                              snapToGuides: snapToGuides,
+                                              canvasSize: canvasSize,
+                                              previewFontLayerID: fontPreviewLayerID,
+                                              previewFontFamily: hoveredFontFamily,
+                                              onScaleLayer: { id, preset in scaleLayer(id, preset: preset) },
+                                              onResizeCompleted: { original in
+                                                  var before = slide
+                                                  if let index = before.layers.firstIndex(where: { $0.id == original.id }) {
+                                                      before.layers[index] = original
+                                                      controller?.recordLayerChangeUndo(before: before, name: "Resize Layer")
+                                                  }
+                                              },
+                                              onReorderLayer: { id, action in reorderLayer(id, action: action) },
+                                              onPaste: { pasteFromClipboard() })
+                                .frame(width: renderedWidth, height: renderedHeight)
+                                .focusable()
+                                .focused($canvasFocused)
+                                .frame(minWidth: viewport.size.width,
+                                       minHeight: viewport.size.height,
+                                       alignment: .center)
+                        }
+                        .background(Color.black.opacity(0.32))
+                        // Local AppKit event handling only inside this viewport:
+                        // wheel zooms, trackpad magnify zooms; Shift+wheel pans.
+                        .background(SlideZoomEventMonitor(
+                            onWheel: { delta in
+                                zoomScale = CanvasZoom.clamp(CanvasZoom.scroll(current: current, delta: delta), canvas: canvasSize)
+                                zoomToFill = false
+                            },
+                            onPinch: { magnification in
+                                zoomScale = CanvasZoom.clamp(
+                                    CanvasZoom.pinch(current: current, magnification: magnification),
+                                    canvas: canvasSize)
+                                zoomToFill = false
+                            }
+                        ))
                         .overlay(RoundedRectangle(cornerRadius: 5)
                             .stroke(Color.gray.opacity(0.4), lineWidth: 1))
-                    Text("Shift-click to select multiple layers; Option-drag a resize handle to stretch. Cyan guides show snapping.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    }
+                    .frame(height: canvasHeight)
+
+                    HStack(spacing: 7) {
+                        Menu {
+                            Button("Zoom to Fill") { zoomToFill = true }
+                            Divider()
+                            ForEach(CanvasZoom.presets, id: \.self) { amount in
+                                Button(CanvasZoom.label(amount)) {
+                                    zoomScale = CanvasZoom.clamp(amount, canvas: canvasSize)
+                                    zoomToFill = false
+                                }
+                                .disabled(amount > CanvasZoom.maximumScale(for: canvasSize))
+                            }
+                        } label: {
+                            Label(zoomToFill ? "Zoom to Fill" : CanvasZoom.label(zoomScale),
+                                  systemImage: "magnifyingglass")
+                        }
+                        .controlSize(.small)
+                        .help("Select an editor zoom level; Zoom to Fill follows the available space")
+                        Text("Wheel: zoom · Pinch: zoom · Shift+wheel: pan")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 2)
+                    }
+                    .frame(height: 22)
                 }
 
                 // Notes/Background stay pinned; a long layer list may still
@@ -262,6 +317,7 @@ struct SlideEditorView: View {
         .onChange(of: slide.id) { _, _ in
             closeFontBrowser()
             fontSearch = ""
+            zoomToFill = true
             // The standard macOS ColorPicker uses a shared floating panel.
             // Keep it from editing the next slide after a selection change.
             NSColorPanel.shared.close()
@@ -833,8 +889,27 @@ struct SlideEditorView: View {
 
                 ColorPicker("Text color", selection: colorBinding(binding.textColorHex), supportsOpacity: false)
                     .font(.caption)
+                ColorPicker("Text outline", selection: colorBinding(Binding(
+                    get: { binding.wrappedValue.resolvedTextOutlineColor },
+                    set: { binding.wrappedValue.textOutlineColorHex = $0 })), supportsOpacity: false)
+                    .font(.caption)
+                HStack(spacing: 6) {
+                    Text("Outline width").font(.caption2)
+                    Slider(value: Binding(
+                        get: { binding.wrappedValue.resolvedTextOutlineWidth },
+                        set: { binding.wrappedValue.textOutlineWidth = $0 }), in: 0...16, step: 1)
+                    Text("\(Int(binding.wrappedValue.resolvedTextOutlineWidth)) px")
+                        .font(.caption2.monospacedDigit())
+                        .frame(width: 40, alignment: .trailing)
+                }
+                .help("A small black outline (2–4 px) improves contrast on busy backgrounds")
                 if showAdvancedHex {
-                    TextField("#FFFFFF", text: binding.textColorHex)
+                    TextField("Text #FFFFFF", text: binding.textColorHex)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    TextField("Outline #000000", text: Binding(
+                        get: { binding.wrappedValue.resolvedTextOutlineColor },
+                        set: { binding.wrappedValue.textOutlineColorHex = $0 }))
                         .textFieldStyle(.roundedBorder)
                         .font(.caption)
                 }
@@ -1501,6 +1576,79 @@ struct SlideEditorView: View {
             case .invalid: return "Could not decode this image. Use PNG, JPEG, HEIC or TIFF."
             case .tooMany: return "Too many layers on this slide (limit: 40)."
             }
+        }
+    }
+}
+
+
+/// Receives zoom gestures without taking ownership of layer clicks or drags.
+/// A local monitor filters by this editor viewport's actual NSView bounds and
+/// window, so audience output and sidebars keep their native scrolling.
+private struct SlideZoomEventMonitor: NSViewRepresentable {
+    var onWheel: (Double) -> Void
+    var onPinch: (Double) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.view = view
+        context.coordinator.onWheel = onWheel
+        context.coordinator.onPinch = onPinch
+        context.coordinator.start()
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.view = view
+        context.coordinator.onWheel = onWheel
+        context.coordinator.onPinch = onPinch
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    final class Coordinator {
+        weak var view: NSView?
+        var onWheel: (Double) -> Void = { _ in }
+        var onPinch: (Double) -> Void = { _ in }
+        private var monitor: Any?
+
+        func start() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { [weak self] event in
+                guard let self, let view = self.view,
+                      let window = view.window, event.window === window else { return event }
+                let location = view.convert(event.locationInWindow, from: nil)
+                guard view.bounds.contains(location) else { return event }
+
+                if event.type == .scrollWheel {
+                    // Shift+wheel is still useful for panning an enlarged slide.
+                    if event.modifierFlags.contains(.shift) { return event }
+                    let delta = Double(event.scrollingDeltaY)
+                    guard abs(delta) > 0.001 else { return event }
+                    self.onWheel(delta)
+                    return nil
+                }
+                if event.type == .magnify {
+                    let delta = Double(event.magnification)
+                    guard abs(delta) > 0.0001 else { return event }
+                    self.onPinch(delta)
+                    return nil
+                }
+                return event
+            }
+        }
+
+        func stop() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            view = nil
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
         }
     }
 }
