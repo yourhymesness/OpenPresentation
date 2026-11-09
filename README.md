@@ -1,3 +1,9 @@
+# OpenPresentation v0.4.5 — Windowed Output Performance
+
+Windowed Output has priority over the silent Program monitor when Fullscreen Output is closed. This prevents the audience window from repeatedly seeking to a slow preview under heavy multi-video shows. Main-thread progress observers run less often for non-primary displays **without reducing the video picture's frame rate**. Redundant audio-meter taps on silent and audio-disabled videos are avoided. The v0.4.4 smooth **Pre/Post** mixer design and zero-volume media startup fix are retained.
+
+For stress tests, compare Fullscreen-only, Windowed-only, and both outputs with the same eight-video slide. Check the GIF, text, audio-disabled clips, video fade ends, soft loops, mute/volume changes and transition timing. This is an incremental optimization; a shared multi-output GPU compositor is still planned.
+
 # OpenPresentation v0.4.4 — Smooth Audio Meters and Muted Startup
 
 The mixer now uses 60 Hz smooth ballistics, clearly marked **Pre** cue meters and **Post** Master levels, stereo L/R, 0 to -48 dBFS scale, white peak-hold markers aligned to the meter, and a readable CLIP warning. Master remains an estimated sum, not an audio-device loopback. Video and audio players now apply mute/zero volume before playback resumes to prevent a first-frame sound leak.

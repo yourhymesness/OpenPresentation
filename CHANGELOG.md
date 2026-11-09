@@ -1,3 +1,13 @@
+## v0.4.5 — Windowed-output workload and smooth-meter follow-up
+
+- Correct output priority: Fullscreen > Windowed > silent Program monitor. When Windowed is the only audience output, it no longer chases the possibly delayed Program preview through repeated seeks.
+- Reduced main-thread video end/loop observer frequency on non-primary surfaces (Fullscreen 30 Hz, Windowed 20 Hz, Program 10 Hz) while preserving AVPlayerLayer's native video frame presentation rate.
+- Drift corrections run once per second rather than once per output window; lower-priority streams use a 3-second seek cooldown and larger tolerance to avoid seek thrashing under multi-video loads.
+- Disabled unnecessary MediaToolbox PCM meter taps on silent Program preview players or video sources with audio disabled; disabled video audio tracks are excluded from playback when available.
+- v0.4.4's true Pre/Post-fader audio meters, 60 Hz display smoothing, dBFS scales and muted-startup fix remain included.
+- Added portable output-priority and metering-policy tests and macOS CI build validation.
+- **Limit:** Each visible output still has independent AVPlayer video decoders. A shared frame compositor remains future work; benchmark high-layer-count shows on the target Mac before production.
+
 ## v0.4.4 — Fluid mixer redesign, Pre/Post routing, silent media startup
 
 - Redesigned the mixer to clarify Pre on each cue and Post on Master; L/R stereo level columns include dBFS ticks (0, -6, -12, -24, -48), a labeled white peak-hold marker, and clear clipping text instead of the unexplained circle and vertical EST/dB text.

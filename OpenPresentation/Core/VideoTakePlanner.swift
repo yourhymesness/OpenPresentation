@@ -52,3 +52,40 @@ enum VideoTakePlanner {
         return result
     }
 }
+
+/// Pure scheduling rules: visual playback always stays at the source frame
+/// rate (AVPlayerLayer), while lightweight end/loop observers may poll slower.
+/// Fullscreen is authoritative, then Windowed, then the silent Program monitor.
+enum VideoPlaybackWorkload {
+    static func rank(_ scope: String) -> Int {
+        switch scope {
+        case "fullscreen": return 3
+        case "windowed": return 2
+        case "program": return 1
+        default: return 0
+        }
+    }
+
+    static func observerInterval(_ scope: String) -> Double {
+        switch scope {
+        case "fullscreen": return 1.0 / 30.0
+        case "windowed": return 1.0 / 20.0
+        default: return 1.0 / 10.0
+        }
+    }
+
+    static func shouldMeter(scope: String, audible: Bool) -> Bool {
+        audible && (scope == "fullscreen" || scope == "windowed")
+    }
+
+    static func shouldCorrect(follower: String, leader: String,
+                              difference: Double, elapsed: Double,
+                              bothPlaying: Bool) -> Bool {
+        guard rank(leader) > rank(follower), bothPlaying,
+              difference.isFinite, elapsed.isFinite else { return false }
+        // Operators may intentionally seek frequently. A relaxed drift
+        // threshold and cooldown prevent the decoder from thrashing.
+        let threshold = follower == "program" ? 0.9 : 0.65
+        return abs(difference) > threshold && elapsed >= 3.0
+    }
+}

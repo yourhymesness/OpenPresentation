@@ -67,3 +67,9 @@ jobs:
           swiftc OpenPresentation/Core/SignalMeterMath.swift \
             Tests/MeterRedesignTests.swift -o /tmp/meter-redesign
           /tmp/meter-redesign
+      - name: Test video output priority, audio-tap gating and drift cooldown
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            OpenPresentation/Core/VideoTakePlanner.swift \
+            Tests/VideoPlaybackWorkloadTests.swift -o /tmp/video-workload
+          /tmp/video-workload

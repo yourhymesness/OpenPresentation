@@ -208,7 +208,10 @@ private struct AudienceOutputView: View {
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
             // Best-effort playhead correction for independently decoded video
             // surfaces. Physical HDMI frame lock requires a shared compositor.
-            VideoPlaybackPool.shared.correctActiveOutputDrift()
+            // One synchronization pass per second, not once per window.
+            if scope == "fullscreen" || !output.isFullscreenOpen {
+                VideoPlaybackPool.shared.correctActiveOutputDrift()
+            }
         }
     }
 }

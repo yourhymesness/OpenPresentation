@@ -168,6 +168,7 @@ final class VideoPlaybackPool {
     }
 
     private var entries: [Key: Entry] = [:]
+    private var lastDriftCorrection: [Key: Date] = [:]
     private init() {}
 
     func engine(for key: Key) -> VideoPlaybackNSView {
@@ -283,16 +284,36 @@ final class VideoPlaybackPool {
         return nil
     }
 
-    /// AVFoundation players are independent; correct larger drifts without
-    /// seeking continuously (which could make playback visibly jitter).
+    /// Only a lower-priority surface may follow a higher-priority one.
+    /// Windowed Output must NEVER seek backwards to a slower Program monitor.
+    /// Repeated seeks during a heavy show can keep multiple decoders busy.
     func correctActiveOutputDrift() {
-        for (key, entry) in entries where key.scope != "fullscreen" && entry.engine.superview != nil {
-            guard let master = activeMaster(for: key), master !== entry.engine else { continue }
-            let target = master.transportStatus.elapsed
-            let current = entry.engine.transportStatus.elapsed
-            if target > 0.5 && abs(target - current) > 0.35 {
-                entry.engine.alignPlayback(to: target)
+        let now = Date()
+        for (key, entry) in entries where entry.engine.superview != nil {
+            let candidates = entries.filter { otherKey, other in
+                otherKey.path == key.path &&
+                otherKey.sessionID == key.sessionID &&
+                otherKey.sourceSlot == key.sourceSlot &&
+                VideoPlaybackWorkload.rank(otherKey.scope) >
+                    VideoPlaybackWorkload.rank(key.scope) &&
+                other.engine.superview != nil && other.engine.isConfigured
             }
+            guard let leader = candidates.max(by: {
+                VideoPlaybackWorkload.rank($0.key.scope) <
+                VideoPlaybackWorkload.rank($1.key.scope)
+            })?.value.engine else { continue }
+            let targetStatus = leader.transportStatus
+            let currentStatus = entry.engine.transportStatus
+            let sinceLast = now.timeIntervalSince(lastDriftCorrection[key] ?? .distantPast)
+            guard VideoPlaybackWorkload.shouldCorrect(
+                follower: key.scope,
+                leader: candidates.first(where: { $0.value.engine === leader })!.key.scope,
+                difference: targetStatus.elapsed - currentStatus.elapsed,
+                elapsed: sinceLast,
+                bothPlaying: targetStatus.isPlaying && currentStatus.isPlaying)
+            else { continue }
+            entry.engine.alignPlayback(to: targetStatus.elapsed)
+            lastDriftCorrection[key] = now
         }
     }
 
@@ -318,6 +339,7 @@ final class VideoPlaybackPool {
             print("[OpenPresentation Video] Released decoder: \(URL(fileURLWithPath: key.path).lastPathComponent)")
             #endif
             self.entries.removeValue(forKey: key)
+            self.lastDriftCorrection.removeValue(forKey: key)
             let session = SessionKey(path: key.path, sessionID: key.sessionID)
             if !self.entries.keys.contains(where: { $0.path == session.path && $0.sessionID == session.sessionID }) {
                 self.transportIntents.removeValue(forKey: session)
@@ -347,6 +369,32 @@ final class VideoPlaybackNSView: NSView {
     private var meterNominalVolume: Double = 1
     private var audibleVolume: Float { audioIsEnabled ? baseVolume : 0 }
     private var meterScope: String = "program"
+    private func updateVideoAudioTracks() {
+        for player in [primary, standby].compactMap({ $0 }) {
+            let items: [AVPlayerItem] = (player as? AVQueuePlayer)?.items()
+                ?? (player.currentItem.map { [$0] } ?? [])
+            for item in items {
+                for track in item.tracks where track.assetTrack?.mediaType == .audio {
+                    if track.isEnabled != audioIsEnabled {
+                        track.isEnabled = audioIsEnabled
+                    }
+                }
+            }
+        }
+    }
+
+    private func attachMeterIfNeeded() {
+        guard VideoPlaybackWorkload.shouldMeter(scope: meterScope, audible: audioIsEnabled)
+        else { return }
+        if meterPrimaryID == nil, let player = primary, let item = player.currentItem {
+            meterPrimaryID = LiveAudioMeters.shared.attach(item: item, to: player, scope: meterScope)
+        }
+        if meterStandbyID == nil, let player = standby, let item = player.currentItem {
+            meterStandbyID = LiveAudioMeters.shared.attach(item: item, to: player, scope: meterScope)
+        }
+        updateMeterParameters()
+    }
+
 
     private var loopQueue: AVQueuePlayer?
     private var looper: AVPlayerLooper?
@@ -505,6 +553,8 @@ final class VideoPlaybackNSView: NSView {
             // its per-frame envelope until the periodic observer refreshes it.
             primary?.isMuted = !audioIsEnabled
             standby?.isMuted = !audioIsEnabled
+            updateVideoAudioTracks()
+            if audioIsEnabled { attachMeterIfNeeded() }
             if behavior == .loop || behavior == .holdLastFrame {
                 primary?.volume = audibleVolume
             }
@@ -530,12 +580,14 @@ final class VideoPlaybackNSView: NSView {
             queue.isMuted = !audioIsEnabled
             queue.volume = audibleVolume
             let item = AVPlayerItem(url: url)
-            meterPrimaryID = LiveAudioMeters.shared.attach(item: item, to: queue, scope: meterScope)
+            meterPrimaryID = VideoPlaybackWorkload.shouldMeter(scope: meterScope, audible: audioIsEnabled)
+                ? LiveAudioMeters.shared.attach(item: item, to: queue, scope: meterScope) : nil
             updateMeterParameters()
             looper = AVPlayerLooper(player: queue, templateItem: item)
             loopQueue = queue
             primary = queue
             videoA.player = queue
+            updateVideoAudioTracks()
             queue.play()
             return
         }
@@ -556,6 +608,7 @@ final class VideoPlaybackNSView: NSView {
             videoB.player = alternate
         }
         updateMeterParameters()
+        updateVideoAudioTracks()
         observePrimary(player)
         player.play()
     }
@@ -568,7 +621,8 @@ final class VideoPlaybackNSView: NSView {
     private func makePlayer(url: URL) -> (AVPlayer, UUID?) {
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
-        let meter = LiveAudioMeters.shared.attach(item: item, to: player, scope: meterScope)
+        let meter = VideoPlaybackWorkload.shouldMeter(scope: meterScope, audible: audioIsEnabled)
+            ? LiveAudioMeters.shared.attach(item: item, to: player, scope: meterScope) : nil
         AudioOutputRouting.apply(to: player)
         player.isMuted = !audioIsEnabled
         player.volume = audibleVolume
@@ -595,7 +649,8 @@ final class VideoPlaybackNSView: NSView {
         cancelObservers()
         timeObserverPlayer = player
         timeObserverToken = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 1.0 / 30.0, preferredTimescale: 600),
+            forInterval: CMTime(seconds: VideoPlaybackWorkload.observerInterval(meterScope),
+                                preferredTimescale: 600),
             queue: .main
         ) { [weak self, weak player] time in
             guard let self, let player, self.primary === player else { return }
@@ -641,6 +696,9 @@ final class VideoPlaybackNSView: NSView {
               time.isNumeric else { return }
         let elapsed = time.seconds
         guard elapsed.isFinite, elapsed >= 0 else { return }
+        // Item tracks may only become available after playback starts.
+        // Reapply until AVFoundation exposes the audio track list.
+        if !audioIsEnabled { updateVideoAudioTracks() }
         let reportedDuration = player.currentItem?.duration.seconds ?? 0
         let duration = reportedDuration.isFinite && reportedDuration > 0
             ? reportedDuration : lastKnownDuration
@@ -694,6 +752,7 @@ final class VideoPlaybackNSView: NSView {
         setAlphas(primary: 1, standby: 0, black: 0)
         incoming.volume = audibleVolume
         incoming.isMuted = !audioIsEnabled
+        updateVideoAudioTracks()
         // Keep the just-rewound former primary preloaded for next time.
         lastKnownDuration = 0
         observePrimary(incoming)
