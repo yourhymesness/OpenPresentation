@@ -31,7 +31,7 @@ struct VideoPlaybackSurface: NSViewRepresentable {
                        behavior: behavior, fadeDuration: fadeDuration,
                        audioEnabled: audioEnabled,
                        volume: volume * audioGain * liveAudioMix.effectiveProgramGain,
-                       contentMode: contentMode)
+                       programGain: volume * audioGain, contentMode: contentMode)
         return view
     }
 
@@ -40,7 +40,7 @@ struct VideoPlaybackSurface: NSViewRepresentable {
                        behavior: behavior, fadeDuration: fadeDuration,
                        audioEnabled: audioEnabled,
                        volume: volume * audioGain * liveAudioMix.effectiveProgramGain,
-                       contentMode: contentMode)
+                       programGain: volume * audioGain, contentMode: contentMode)
     }
 
     static func dismantleNSView(_ view: VideoPlaybackHostView, coordinator: ()) {
@@ -70,7 +70,7 @@ final class VideoPlaybackHostView: NSView {
 
     func configure(path: String, session: UUID, scope: String, sourceSlot: String, behavior: VideoEndBehavior,
                    fadeDuration: Double, audioEnabled: Bool, volume: Double,
-                   contentMode: LayerContentMode) {
+                   programGain: Double, contentMode: LayerContentMode) {
         let newKey = VideoPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                            scope: scope, sessionID: session, sourceSlot: sourceSlot)
         let newlyMounted = key != newKey || engine == nil
@@ -92,7 +92,8 @@ final class VideoPlaybackHostView: NSView {
         guard let engine, engine.superview === self else { return }
         engine.configure(path: newKey.path, behavior: behavior,
                          fadeDuration: fadeDuration, audioEnabled: audioEnabled,
-                         volume: volume, contentMode: contentMode)
+                         volume: volume, programGain: programGain, contentMode: contentMode,
+                         meterScope: scope)
         VideoPlaybackPool.shared.applyTransportIntent(to: engine, key: newKey)
         if newlyMounted { VideoPlaybackPool.shared.alignNewSurface(engine, key: newKey) }
     }
@@ -332,6 +333,10 @@ final class VideoPlaybackNSView: NSView {
     private var fadeSeconds: Double = 0.75
     private var audioIsEnabled = false
     private var baseVolume: Float = 1
+    private var meterPrimaryID: UUID?
+    private var meterStandbyID: UUID?
+    private var meterProgramGain: Double = 1
+    private var meterScope: String = "program"
 
     private var loopQueue: AVQueuePlayer?
     private var looper: AVPlayerLooper?
@@ -462,7 +467,7 @@ final class VideoPlaybackNSView: NSView {
     private var background: AVPlayerLayer { primaryIsA ? videoB : videoA }
 
     func configure(path: String, behavior: VideoEndBehavior, fadeDuration: Double,
-                   audioEnabled: Bool, volume: Double, contentMode: LayerContentMode) {
+                   audioEnabled: Bool, volume: Double, programGain: Double, contentMode: LayerContentMode, meterScope: String) {
         let gravity: AVLayerVideoGravity
         switch contentMode {
         case .fit: gravity = .resizeAspect
@@ -478,6 +483,9 @@ final class VideoPlaybackNSView: NSView {
         fadeSeconds = adjustedFade
         audioIsEnabled = audioEnabled
         baseVolume = adjustedVolume
+        meterProgramGain = programGain
+        self.meterScope = meterScope
+        updateMeterParameters()
         if !requiresRestart {
             // Update mix without restarting/rewinding a player. A source that
             // is already in its end fade or soft-loop crossfade must retain
@@ -509,6 +517,8 @@ final class VideoPlaybackNSView: NSView {
             queue.isMuted = !audioIsEnabled
             queue.volume = baseVolume
             let item = AVPlayerItem(url: url)
+            meterPrimaryID = LiveAudioMeters.shared.attach(item: item, to: queue, scope: meterScope)
+            updateMeterParameters()
             looper = AVPlayerLooper(player: queue, templateItem: item)
             loopQueue = queue
             primary = queue
@@ -517,19 +527,22 @@ final class VideoPlaybackNSView: NSView {
             return
         }
 
-        let player = makePlayer(url: url)
+        let (player, primaryMeter) = makePlayer(url: url)
+        meterPrimaryID = primaryMeter
         player.actionAtItemEnd = .pause
         primary = player
         videoA.player = player
         if behavior == .softLoop {
             // Keep another decoder ready at frame zero for the overlapping
             // dissolve into the beginning of the same source video.
-            let alternate = makePlayer(url: url)
+            let (alternate, standbyMeter) = makePlayer(url: url)
+            meterStandbyID = standbyMeter
             alternate.actionAtItemEnd = .pause
             alternate.volume = 0
             standby = alternate
             videoB.player = alternate
         }
+        updateMeterParameters()
         observePrimary(player)
         player.play()
     }
@@ -539,12 +552,24 @@ final class VideoPlaybackNSView: NSView {
         if let standby { AudioOutputRouting.apply(to: standby) }
     }
 
-    private func makePlayer(url: URL) -> AVPlayer {
-        let player = AVPlayer(playerItem: AVPlayerItem(url: url))
+    private func makePlayer(url: URL) -> (AVPlayer, UUID?) {
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        let meter = LiveAudioMeters.shared.attach(item: item, to: player, scope: meterScope)
         AudioOutputRouting.apply(to: player)
         player.isMuted = !audioIsEnabled
         player.volume = baseVolume
-        return player
+        return (player, meter)
+    }
+
+    /// Tap values are measured before AVPlayer volume. These nominal gains
+    /// let the mixer account for per-slide gain and master gain. AVPlayer's
+    /// current volume is also inspected to follow video end fades/soft loops.
+    private func updateMeterParameters() {
+        LiveAudioMeters.shared.configure(meterPrimaryID, programGain: meterProgramGain,
+                                          nominalPlayerGain: Double(baseVolume))
+        LiveAudioMeters.shared.configure(meterStandbyID, programGain: meterProgramGain,
+                                          nominalPlayerGain: Double(baseVolume))
     }
 
     /// Call only on main; both AVPlayer's periodic handler and end notification
@@ -646,6 +671,7 @@ final class VideoPlaybackNSView: NSView {
         outgoing.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
         primary = incoming
         standby = outgoing
+        swap(&meterPrimaryID, &meterStandbyID)
         primaryIsA.toggle()
         blendStarted = false
         setAlphas(primary: 1, standby: 0, black: 0)
@@ -700,6 +726,10 @@ final class VideoPlaybackNSView: NSView {
         standby?.pause()
         videoA.player = nil
         videoB.player = nil
+        LiveAudioMeters.shared.remove(meterPrimaryID)
+        LiveAudioMeters.shared.remove(meterStandbyID)
+        meterPrimaryID = nil
+        meterStandbyID = nil
         looper = nil
         loopQueue?.removeAllItems()
         loopQueue = nil

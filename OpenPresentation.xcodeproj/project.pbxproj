@@ -26,6 +26,8 @@
 		E913ABCD0000000000000005 /* MediaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E913ABCD0000000000000006 /* MediaImporter.swift */; };
         F042A1111111111111111111 /* RecoverySnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F042B1111111111111111111 /* RecoverySnapshotStore.swift */; };
         F042A2222222222222222222 /* RecoveryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F042B2222222222222222222 /* RecoveryCoordinator.swift */; };
+        F043A1111111111111111111 /* AudioMetering.swift in Sources */ = {isa = PBXBuildFile; fileRef = F043B1111111111111111111 /* AudioMetering.swift */; };
+        F043A2222222222222222222 /* SignalMeterMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = F043B2222222222222222222 /* SignalMeterMath.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +54,8 @@
 		E913ABCD0000000000000006 /* MediaImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImporter.swift; sourceTree = "<group>"; };
         F042B1111111111111111111 /* RecoverySnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySnapshotStore.swift; sourceTree = "<group>"; };
         F042B2222222222222222222 /* RecoveryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryCoordinator.swift; sourceTree = "<group>"; };
+        F043B1111111111111111111 /* AudioMetering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMetering.swift; sourceTree = "<group>"; };
+        F043B2222222222222222222 /* SignalMeterMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalMeterMath.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +101,7 @@
                 0A0255000000000000000002 /* VideoTakePlanner.swift */,
                 52B214000000000000000002 /* CanvasSnapping.swift */,
                 E023041E0000000000000002 /* CanvasZoom.swift */,
+                F043B2222222222222222222 /* SignalMeterMath.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -121,6 +126,7 @@
 				E913ABCD0000000000000006 /* MediaImporter.swift */,
 				E913ABCD0000000000000004 /* AudioPlaybackSurface.swift */,
 				E913ABCD0000000000000002 /* AnimatedGIFImage.swift */,
+                F043B1111111111111111111 /* AudioMetering.swift */,
 			);
 			path = Rendering;
 			sourceTree = "<group>";
@@ -208,6 +214,8 @@
 				4727A1614736FD51CA6BE666 /* OutputManager.swift in Sources */,
 				E913ABCD0000000000000005 /* MediaImporter.swift in Sources */,
 				E913ABCD0000000000000003 /* AudioPlaybackSurface.swift in Sources */,
+                F043A1111111111111111111 /* AudioMetering.swift in Sources */,
+                F043A2222222222222222222 /* SignalMeterMath.swift in Sources */,
 				E913ABCD0000000000000001 /* AnimatedGIFImage.swift in Sources */,
 				01AAA51FA7AD1F5A43570220 /* ProjectStore.swift in Sources */,
 				70B021000000000000000001 /* ShowFileActions.swift in Sources */,

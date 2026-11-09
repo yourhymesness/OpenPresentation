@@ -23,7 +23,8 @@ struct AudioPlaybackSurface: NSViewRepresentable {
     func updateNSView(_ view: AudioPlaybackHostView, context: Context) {
         view.configure(path: path, session: playbackSessionID,
                        scope: outputScope, audible: audible,
-                       volume: volume * liveAudioMix.effectiveProgramGain, loops: loops)
+                       volume: volume * liveAudioMix.effectiveProgramGain,
+                       programGain: volume, loops: loops)
     }
 
     static func dismantleNSView(_ view: AudioPlaybackHostView, coordinator: ()) {
@@ -36,7 +37,7 @@ final class AudioPlaybackHostView: NSView {
     private var key: AudioPlaybackPool.Key?
 
     func configure(path: String, session: UUID, scope: String, audible: Bool,
-                   volume: Double, loops: Bool) {
+                   volume: Double, programGain: Double, loops: Bool) {
         let next = AudioPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                          scope: scope, sessionID: session)
         if key != next {
@@ -44,7 +45,8 @@ final class AudioPlaybackHostView: NSView {
             key = next
             AudioPlaybackPool.shared.attach(next, hostID: hostID, loops: loops)
         }
-        AudioPlaybackPool.shared.configure(next, audible: audible, volume: volume)
+        AudioPlaybackPool.shared.configure(next, audible: audible, volume: volume,
+                                           programGain: programGain)
     }
 
     func unbind() {
@@ -55,6 +57,7 @@ final class AudioPlaybackHostView: NSView {
 
 /// Audio is retained outside ephemeral SwiftUI slide views. A change from one
 /// slide to another using the same audio path keeps its playing position.
+@MainActor
 final class AudioPlaybackPool {
     struct Key: Hashable {
         let path: String
@@ -65,20 +68,24 @@ final class AudioPlaybackPool {
     private final class Entry {
         let player: AVPlayer
         let looper: AVPlayerLooper?
+        let meterID: UUID?
         var hosts = Set<UUID>()
         var evictionGeneration = 0
 
-        init(path: String, loops: Bool) {
+        init(path: String, scope: String, loops: Bool) {
             let url = URL(fileURLWithPath: path)
+            let item = AVPlayerItem(url: url)
             if loops {
                 let queue = AVQueuePlayer()
                 queue.actionAtItemEnd = .advance
                 self.player = queue
-                self.looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
+                self.meterID = LiveAudioMeters.shared.attach(item: item, to: queue, scope: scope)
+                self.looper = AVPlayerLooper(player: queue, templateItem: item)
             } else {
-                let oneShot = AVPlayer(url: url)
+                let oneShot = AVPlayer(playerItem: item)
                 oneShot.actionAtItemEnd = .pause
                 self.player = oneShot
+                self.meterID = LiveAudioMeters.shared.attach(item: item, to: oneShot, scope: scope)
                 self.looper = nil
             }
             AudioOutputRouting.apply(to: player)
@@ -97,7 +104,7 @@ final class AudioPlaybackPool {
         if let existing = entries[key] {
             entry = existing
         } else {
-            entry = Entry(path: key.path, loops: loops)
+            entry = Entry(path: key.path, scope: key.scope, loops: loops)
             entries[key] = entry
             // On another monitor, follow the same position where possible.
             if let master = entries.first(where: { $0.key != key &&
@@ -112,10 +119,12 @@ final class AudioPlaybackPool {
         entry.player.play()
     }
 
-    func configure(_ key: Key, audible: Bool, volume: Double) {
+    func configure(_ key: Key, audible: Bool, volume: Double, programGain: Double) {
         guard let entry = entries[key] else { return }
         entry.player.isMuted = !audible
         entry.player.volume = Float(max(0, min(volume, 1)))
+        LiveAudioMeters.shared.configure(entry.meterID, programGain: programGain,
+                                          nominalPlayerGain: volume)
     }
 
     func detach(_ key: Key, hostID: UUID) {
@@ -129,6 +138,7 @@ final class AudioPlaybackPool {
             guard let self, let entry, entry.hosts.isEmpty,
                   entry.evictionGeneration == current else { return }
             entry.player.pause()
+            LiveAudioMeters.shared.remove(entry.meterID)
             self.entries.removeValue(forKey: key)
         }
     }

@@ -51,3 +51,8 @@
 - [ ] Accessibility, localization, automated UI tests and signed/notarized binaries
 
 This is a planning document, not a promise of release timing.
+
+### v0.4.3 — Live audio metering
+Implemented decoded-PCM Program and estimated Master meter displays for the
+current file-based AVPlayer architecture. Future work: sample-synchronous
+master mix telemetry once a unified audio-mixing engine is available.

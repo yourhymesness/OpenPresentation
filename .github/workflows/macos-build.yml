@@ -57,3 +57,8 @@ jobs:
             OpenPresentation/Storage/RecoverySnapshotStore.swift \
             Tests/AutosaveCrashRecovery.swift -o /tmp/autosave-recovery
           /tmp/autosave-recovery
+      - name: Test dBFS conversion and combined meter math
+        run: |
+          swiftc OpenPresentation/Core/SignalMeterMath.swift \
+            Tests/AudioMeterMath.swift -o /tmp/audio-meter-math
+          /tmp/audio-meter-math

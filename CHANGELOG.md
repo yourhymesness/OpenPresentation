@@ -1,3 +1,11 @@
+## v0.4.3 — Live PCM Audio Meters (Alpha)
+- Added live stereo RMS level bars, peak hold, and red peak/clip indicators alongside the Program and Master mixer faders. The Next meter remains idle until the next cue is taken on Program.
+- Added per-player decoded-PCM observation with file-based AVAudioMix / MediaToolbox audio taps, including local audio and video media. Audio samples pass through the taps unchanged.
+- Levels follow source PCM, cue gain, video fade envelopes, player mute and Master gain; idle/muted playback displays silence. An offline display scope is not used to meter Program.
+- Master combines active players using a signal-derived estimate; **not a sample-synchronous physical-output measurement**, and does not monitor other macOS apps or hardware. See meter tooltip.
+- Preserved independent player pools, per-surface audio ownership, Core Audio routing and program transition handling.
+- Added a portable meter-math regression test and a macOS CI step. Requires hands-on testing with stereo audio, video/audio, looping playback and video crossfades.
+
 # v0.4.2-alpha — Autosave and Crash Recovery
 
 - New Foundation-based `RecoverySnapshotStore`: every five seconds while an edited show is dirty, store a separate atomic recovery JSON with two older generations. The original show file is never overwritten by autosave.

@@ -1,4 +1,14 @@
-# OpenPresentation v0.4.2 Alpha — Zoom and Text Outlines
+# OpenPresentation v0.4.3 Alpha — Live Audio Meters
+
+The Program fader now shows live decoded PCM stereo meters, and the Master fader shows an estimated combined stereo level after the master gain. The Next cue remains idle until it is actually playing. Bars represent RMS audio level, with a white peak-hold line and a red potential-clipping warning. These are **signal-derived meters, not output-device loopback**.
+
+## Earlier highlights
+
+### v0.4.2 — Autosave and crash recovery
+
+Unsaved slide changes are captured to separate recovery snapshots every five seconds and offered at next launch after an interrupted session. Snapshots do not overwrite saved shows or back up media files.
+
+### v0.4.1 — Zoom and Text Outlines
 
 **Blind Editor zoom:** The bottom-left zoom dropdown offers **Zoom to Fill** and percentage presets. Scroll the mouse wheel over the canvas or pinch on a trackpad to zoom in/out. Shift+scroll or the scrollbars pan an enlarged slide. Zoom is a view-only setting; it never changes Program or the saved show.
 
@@ -88,3 +98,19 @@ OpenPresentation keeps **local emergency recovery snapshots every five seconds w
 On reopening after an interruption, choose **Recover** to restore the newest available unsaved show, **Later** to leave the recovery data intact, or **Discard Recovery** to delete that draft. Recovered work opens as **unsaved** and does **not** automatically go to the audience output. Review the recovery and choose Save or Save As yourself. Media files are **referenced by their original paths** rather than duplicated, so keep source media available. Recovery is not a substitute for real backups.
 
 **Safe test:** create a disposable test show, add a slide and edit it, look for the “Recovery saved” status in the operator footer (allow at least 10 seconds), then use **Apple menu → Force Quit → OpenPresentation → Force Quit**. Reopen OpenPresentation and select Recover. Verify changes, and save to a test `.json` file. Don't do this while a show is live; Force Quit will immediately interrupt all output.
+
+## Live audio meters (v0.4.3)
+
+The Program and Master faders now include stereo RMS bars with a brief peak hold and
+red clipping warning. A local MediaToolbox audio tap reads decoded PCM from each
+file-based AVPlayerItem without modifying the samples. The meters will be silent
+when no audience output is playing, and the **Next** fader stays idle until its
+slide is on Program. The master display follows mute/gain and shows **EST**:
+independent audio and video players are mixed downstream by macOS, so the
+summed level is a *signal-derived estimate*, **not** a calibrated, sample-accurate
+Core Audio hardware/device loopback. It does not meter other apps. Audio taps
+support local file media, not HLS; unusual formats may lack meter data.
+
+For live events, always verify levels with the physical audio interface or mixing
+console. Test local stereo clips, looped background audio, video clips with
+embedded audio, fade behaviors, and moving between Windowed/Fullscreen outputs.

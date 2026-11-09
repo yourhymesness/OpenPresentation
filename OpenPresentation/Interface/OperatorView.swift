@@ -1425,10 +1425,88 @@ private struct AutoCountdownButton: View {
 
 /// A real, vertically oriented fader (not a rotated slider) with a continuous
 /// hit target, separate mute below, and deterministic 0...1 binding.
+/// Actual decoded PCM readings, scaled into a -60...0 dBFS display.
+/// The thin line holds the recent peak; red latches when a source might clip.
+private struct StereoAudioMeter: View {
+    let reading: StereoSignal
+    let estimated: Bool
+    @State private var shownLeft = 0.0
+    @State private var shownRight = 0.0
+    @State private var heldLeft = 0.0
+    @State private var heldRight = 0.0
+    @State private var heldLeftUntil = Date.distantPast
+    @State private var heldRightUntil = Date.distantPast
+    @State private var clipUntil = Date.distantPast
+
+    var body: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 3) {
+                Image(systemName: Date() < clipUntil ? "exclamationmark.circle.fill" : "circle.fill")
+                    .font(.system(size: 7))
+                    .foregroundStyle(Date() < clipUntil ? Color.red : Color.gray.opacity(0.35))
+                Text(estimated ? "EST" : "dB")
+                    .font(.system(size: 7, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            GeometryReader { frame in
+                HStack(spacing: 2) {
+                    channel(height: frame.size.height, rms: shownLeft, peak: heldLeft)
+                    channel(height: frame.size.height, rms: shownRight, peak: heldRight)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            HStack(spacing: 3) {
+                Text("L")
+                Text("R")
+            }
+            .font(.system(size: 7, weight: .medium, design: .monospaced))
+            .foregroundStyle(.secondary)
+        }
+        .frame(width: 19)
+        .help(estimated
+              ? "Estimated Master: decoded source audio after software gains. Not a hardware/device loopback or sample-synchronous mix."
+              : "Program: real decoded PCM levels with cue gain, before Master gain. Next is idle until taken live.")
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
+            let now = Date()
+            let targetL = SignalMeterMath.fraction(reading.rmsLeft)
+            let targetR = SignalMeterMath.fraction(reading.rmsRight)
+            shownLeft = max(targetL, shownLeft - 0.065)
+            shownRight = max(targetR, shownRight - 0.065)
+            let peakL = SignalMeterMath.fraction(reading.peakLeft)
+            let peakR = SignalMeterMath.fraction(reading.peakRight)
+            if peakL >= heldLeft { heldLeft = peakL; heldLeftUntil = now.addingTimeInterval(1.2) }
+            else if now > heldLeftUntil { heldLeft = max(peakL, heldLeft - 0.045) }
+            if peakR >= heldRight { heldRight = peakR; heldRightUntil = now.addingTimeInterval(1.2) }
+            else if now > heldRightUntil { heldRight = max(peakR, heldRight - 0.045) }
+            if reading.peakLeft >= 0.999 || reading.peakRight >= 0.999 {
+                clipUntil = now.addingTimeInterval(1.4)
+            }
+        }
+    }
+
+    private func channel(height: CGFloat, rms: Double, peak: Double) -> some View {
+        ZStack(alignment: .bottom) {
+            Capsule().fill(Color.gray.opacity(0.24))
+            Capsule()
+                .fill(LinearGradient(colors: [.green, .green, .yellow, .red],
+                                     startPoint: .bottom, endPoint: .top))
+                .frame(height: max(0, height * CGFloat(min(1, rms))))
+            Rectangle()
+                .fill(peak > 0.92 ? Color.red : Color.white)
+                .frame(height: 2)
+                .offset(y: -(max(0, height - 2) * CGFloat(min(1, peak))))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+    }
+}
+
 private struct VerticalMixerFader: View {
     let title: String
     @Binding var gain: Double
     @Binding var muted: Bool
+    var meter: StereoSignal = .silent
+    var estimatedMeter = false
 
     var body: some View {
         VStack(spacing: 5) {
@@ -1439,7 +1517,9 @@ private struct VerticalMixerFader: View {
             Text("\(Int((gain * 100).rounded()))%")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.secondary)
-            GeometryReader { geometry in
+            HStack(spacing: 3) {
+                StereoAudioMeter(reading: meter, estimated: estimatedMeter)
+                GeometryReader { geometry in
                 let usableHeight = max(1, geometry.size.height - 15)
                 let knobY = 7.5 + (1 - CGFloat(gain)) * usableHeight
                 ZStack {
@@ -1462,6 +1542,7 @@ private struct VerticalMixerFader: View {
                     let y = min(max(value.location.y - 7.5, 0), usableHeight)
                     gain = Double(1 - y / usableHeight)
                 })
+                }
             }
             .frame(minHeight: 84, maxHeight: .infinity)
             .frame(maxWidth: .infinity)
@@ -1493,6 +1574,7 @@ private struct ProgramAudioMixer: View {
     let isBlind: Bool
     @Namespace private var cuePositions
     @ObservedObject private var mixer = LiveAudioMix.shared
+    @ObservedObject private var meters = LiveAudioMeters.shared
 
     private func volumeBinding(for slideID: UUID?) -> Binding<Double> {
         Binding(get: {
@@ -1538,7 +1620,8 @@ private struct ProgramAudioMixer: View {
             HStack(alignment: .top, spacing: 4) {
                 VerticalMixerFader(title: show.liveSlide?.displayTitle ?? "Program —",
                                    gain: volumeBinding(for: show.liveSlideID),
-                                   muted: muteBinding(for: show.liveSlideID))
+                                   muted: muteBinding(for: show.liveSlideID),
+                                   meter: meters.program)
                     .matchedGeometryEffect(id: "cue-\(show.liveSlideID?.uuidString ?? "program")", in: cuePositions)
                     .id("program-\(show.liveSlideID?.uuidString ?? "none")")
                     .transition(.asymmetric(
@@ -1550,7 +1633,8 @@ private struct ProgramAudioMixer: View {
                     .accessibilityLabel(programHasAudio ? "Program contains audio" : "Program has no audio")
                 VerticalMixerFader(title: show.nextQueuedSlide?.displayTitle ?? "Next —",
                                    gain: volumeBinding(for: show.nextQueuedSlide?.id),
-                                   muted: muteBinding(for: show.nextQueuedSlide?.id))
+                                   muted: muteBinding(for: show.nextQueuedSlide?.id),
+                                   meter: .silent)
                     .matchedGeometryEffect(id: "cue-\((show.nextQueuedSlide?.id == show.liveSlideID ? "next-loop" : show.nextQueuedSlide?.id.uuidString) ?? "next")", in: cuePositions)
                     .id("next-\(show.nextQueuedSlide?.id.uuidString ?? "none")")
                     .transition(.asymmetric(
@@ -1561,10 +1645,14 @@ private struct ProgramAudioMixer: View {
                     .allowsHitTesting(nextHasAudio)
                     .accessibilityLabel(nextHasAudio ? "Next slide contains audio" : "Next slide has no audio")
                 Divider().frame(maxHeight: .infinity).padding(.horizontal, 2)
-                VerticalMixerFader(title: "Master", gain: $mixer.master, muted: $mixer.masterMuted)
+                VerticalMixerFader(title: "Master", gain: $mixer.master, muted: $mixer.masterMuted,
+                                   meter: meters.master, estimatedMeter: true)
             }
             .animation(.spring(response: 0.42, dampingFraction: 0.84), value: show.liveSlideID)
             .frame(maxHeight: .infinity)
+        }
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
+            meters.poll()
         }
         .padding(9)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
