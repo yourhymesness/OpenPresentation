@@ -1,0 +1,54 @@
+import Foundation
+
+/// The decoder cache may retain a player briefly for a SwiftUI transition,
+/// but a new video *take* must never accidentally reclaim an older playhead.
+/// A token is created only on a deliberate Take Live, not on view creation.
+/// All output windows receive the same token for a take; their audience/monitor
+/// pool keys still remain separate so sound isn't duplicated.
+enum VideoTakePlanner {
+    static func canonical(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    /// The same asset appearing twice on one slide uses one playback instance
+    /// per output. Independent duplicate instances are a future enhancement.
+    static func behaviors(in slide: PresentationSlide?) -> [String: VideoTakeBehavior] {
+        guard let slide else { return [:] }
+        var result: [String: VideoTakeBehavior] = [:]
+        func insert(_ path: String, _ behavior: VideoTakeBehavior) {
+            let key = canonical(path)
+            // Restart wins if multiple visible layers reference one video and
+            // disagree about the per-take policy.
+            if result[key] == .restartEachTake { return }
+            result[key] = behavior
+        }
+        if let path = slide.backgroundVideoPath, !path.isEmpty {
+            insert(path, slide.resolvedBackgroundVideoTakeBehavior)
+        }
+        for layer in slide.layers where layer.isVisible {
+            if layer.kind == .video, let path = layer.videoPath, !path.isEmpty {
+                insert(path, layer.resolvedVideoTakeBehavior)
+            } else if layer.kind == .audio, let path = layer.audioPath, !path.isEmpty {
+                // An audio-only file also receives a session token and survives
+                // directly adjacent slide takes when that same audio is present.
+                insert(path, .continueOnConsecutive)
+            }
+        }
+        return result
+    }
+
+    /// Preserve a session only when the *immediately previous live slide*
+    /// contained that video AND the incoming slide elects to continue it.
+    static func sessions(for incoming: PresentationSlide,
+                         previous: [String: UUID]) -> [String: UUID] {
+        var result: [String: UUID] = [:]
+        for (path, behavior) in behaviors(in: incoming) {
+            if behavior == .continueOnConsecutive, let existing = previous[path] {
+                result[path] = existing
+            } else {
+                result[path] = UUID()
+            }
+        }
+        return result
+    }
+}

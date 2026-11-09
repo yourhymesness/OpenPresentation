@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible crash, output issue, or editor defect
+title: "Bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open a show ... 2. Switch to Blind ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS / Xcode / OpenPresentation version
+      placeholder: macOS 15.x, Xcode 16.x, OpenPresentation 0.3.0 alpha
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, screenshots, or video (avoid client/private content)

@@ -1,0 +1,291 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		93CE18D013B07081F309409D /* OpenPresentationApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FCABC7D306895CD87D3E073 /* OpenPresentationApp.swift */; };
+		4F8984B76E403F8285B55344 /* PresentationSlide.swift in Sources */ = {isa = PBXBuildFile; fileRef = A01EA878563079358D13A633 /* PresentationSlide.swift */; };
+		2854B9523D8A221DCBA6E3C0 /* ShowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB4427A6113A0A39779BFBF6 /* ShowController.swift */; };
+		F4B698E7C9D67A08B85E7F91 /* OperatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7CD990C808F8540EC57C422 /* OperatorView.swift */; };
+		273D8E1B2ED2BA34A79CD5B4 /* SlideEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45A0216AEEFFC8931E13231 /* SlideEditorView.swift */; };
+		8757A341EBD8AD8563741F21 /* SlideCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E6415C1FA8EA215D464E4E /* SlideCanvas.swift */; };
+		555522000000000000000001 /* VideoPlaybackSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555522000000000000000002 /* VideoPlaybackSurface.swift */; };
+		4727A1614736FD51CA6BE666 /* OutputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB6D384F50B4B09FA4E899E /* OutputManager.swift */; };
+		01AAA51FA7AD1F5A43570220 /* ProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA163FD223104940861D8EA /* ProjectStore.swift */; };
+		6C3F5E100000000000000001 /* SlideObjectCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C3F5E100000000000000002 /* SlideObjectCanvas.swift */; };
+        70B021000000000000000001 /* ShowFileActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B021000000000000000002 /* ShowFileActions.swift */; };
+        0A0255000000000000000001 /* VideoTakePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0255000000000000000002 /* VideoTakePlanner.swift */; };
+		52B214000000000000000001 /* CanvasSnapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52B214000000000000000002 /* CanvasSnapping.swift */; };
+		B1C2D3E4F500000000000001 /* AudioOutputRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F500000000000002 /* AudioOutputRouting.swift */; };
+		E913ABCD0000000000000001 /* AnimatedGIFImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E913ABCD0000000000000002 /* AnimatedGIFImage.swift */; };
+		E913ABCD0000000000000003 /* AudioPlaybackSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = E913ABCD0000000000000004 /* AudioPlaybackSurface.swift */; };
+		E913ABCD0000000000000005 /* MediaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E913ABCD0000000000000006 /* MediaImporter.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		8FCABC7D306895CD87D3E073 /* OpenPresentationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenPresentationApp.swift; sourceTree = "<group>"; };
+		A01EA878563079358D13A633 /* PresentationSlide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationSlide.swift; sourceTree = "<group>"; };
+		AB4427A6113A0A39779BFBF6 /* ShowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowController.swift; sourceTree = "<group>"; };
+		E7CD990C808F8540EC57C422 /* OperatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperatorView.swift; sourceTree = "<group>"; };
+		C45A0216AEEFFC8931E13231 /* SlideEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlideEditorView.swift; sourceTree = "<group>"; };
+		B7E6415C1FA8EA215D464E4E /* SlideCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlideCanvas.swift; sourceTree = "<group>"; };
+		555522000000000000000002 /* VideoPlaybackSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlaybackSurface.swift; sourceTree = "<group>"; };
+		DEB6D384F50B4B09FA4E899E /* OutputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputManager.swift; sourceTree = "<group>"; };
+		7DA163FD223104940861D8EA /* ProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStore.swift; sourceTree = "<group>"; };
+		44364A9D50720126ECAD2D91 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = README.md; sourceTree = "<group>"; };
+		7A5A2BEF6B6857BC15A79FBB /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		46B6D0DF2BCB7622AFB23F81 /* OpenPresentation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenPresentation.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6C3F5E100000000000000002 /* SlideObjectCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlideObjectCanvas.swift; sourceTree = "<group>"; };
+        70B021000000000000000002 /* ShowFileActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowFileActions.swift; sourceTree = "<group>"; };
+        0A0255000000000000000002 /* VideoTakePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTakePlanner.swift; sourceTree = "<group>"; };
+		52B214000000000000000002 /* CanvasSnapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasSnapping.swift; sourceTree = "<group>"; };
+		B1C2D3E4F500000000000002 /* AudioOutputRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioOutputRouting.swift; sourceTree = "<group>"; };
+		E913ABCD0000000000000002 /* AnimatedGIFImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedGIFImage.swift; sourceTree = "<group>"; };
+		E913ABCD0000000000000004 /* AudioPlaybackSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackSurface.swift; sourceTree = "<group>"; };
+		E913ABCD0000000000000006 /* MediaImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImporter.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1C85A9BDD83BE1E9E231F5F9 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8232010BAB0C84C91292198B = {
+			isa = PBXGroup;
+			children = (
+				7DEA87246AA5A24BC83AA452 /* OpenPresentation */,
+				44364A9D50720126ECAD2D91 /* README.md */,
+				7A5A2BEF6B6857BC15A79FBB /* LICENSE */,
+				BA80BAB1633EF00712C3AFAB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7DEA87246AA5A24BC83AA452 /* OpenPresentation */ = {
+			isa = PBXGroup;
+			children = (
+				813E4596458BC993F3E6E0AF /* App */,
+				92983379ECDBE7792BAFF1EF /* Core */,
+				E6DFFEEDF7DAA96412A673A5 /* Interface */,
+				B6EFAB07C94989C144E83F82 /* Rendering */,
+				FB9222B7D35E8574FAD09A8D /* Storage */,
+			);
+			path = OpenPresentation;
+			sourceTree = "<group>";
+		};
+		813E4596458BC993F3E6E0AF /* App */ = {
+			isa = PBXGroup;
+			children = (
+				8FCABC7D306895CD87D3E073 /* OpenPresentationApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		92983379ECDBE7792BAFF1EF /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				A01EA878563079358D13A633 /* PresentationSlide.swift */,
+				AB4427A6113A0A39779BFBF6 /* ShowController.swift */,
+                0A0255000000000000000002 /* VideoTakePlanner.swift */,
+                52B214000000000000000002 /* CanvasSnapping.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		E6DFFEEDF7DAA96412A673A5 /* Interface */ = {
+			isa = PBXGroup;
+			children = (
+				E7CD990C808F8540EC57C422 /* OperatorView.swift */,
+				C45A0216AEEFFC8931E13231 /* SlideEditorView.swift */,
+				6C3F5E100000000000000002 /* SlideObjectCanvas.swift */,
+			);
+			path = Interface;
+			sourceTree = "<group>";
+		};
+		B6EFAB07C94989C144E83F82 /* Rendering */ = {
+			isa = PBXGroup;
+			children = (
+				B7E6415C1FA8EA215D464E4E /* SlideCanvas.swift */,
+				555522000000000000000002 /* VideoPlaybackSurface.swift */,
+				B1C2D3E4F500000000000002 /* AudioOutputRouting.swift */,
+				DEB6D384F50B4B09FA4E899E /* OutputManager.swift */,
+				E913ABCD0000000000000006 /* MediaImporter.swift */,
+				E913ABCD0000000000000004 /* AudioPlaybackSurface.swift */,
+				E913ABCD0000000000000002 /* AnimatedGIFImage.swift */,
+			);
+			path = Rendering;
+			sourceTree = "<group>";
+		};
+		FB9222B7D35E8574FAD09A8D /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				7DA163FD223104940861D8EA /* ProjectStore.swift */,
+				70B021000000000000000002 /* ShowFileActions.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		BA80BAB1633EF00712C3AFAB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				46B6D0DF2BCB7622AFB23F81 /* OpenPresentation.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BFB5151FCB24D88A71B737BC /* OpenPresentation */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D7509D2F0C5A44237FAA3D53 /* Build configuration list for PBXNativeTarget "OpenPresentation" */;
+			buildPhases = (
+				BA88739A0B6B86C4A01CFFCE /* Sources */,
+				1C85A9BDD83BE1E9E231F5F9 /* Frameworks */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = OpenPresentation;
+			productName = OpenPresentation;
+			productReference = 46B6D0DF2BCB7622AFB23F81 /* OpenPresentation.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F45E0E98966C96262E12A848 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					BFB5151FCB24D88A71B737BC = {CreatedOnToolsVersion = 15.0; };
+				};
+			};
+			buildConfigurationList = A1620F59D4BBD6DB25AAEA1B /* Build configuration list for PBXProject "OpenPresentation" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = 8232010BAB0C84C91292198B;
+			productRefGroup = BA80BAB1633EF00712C3AFAB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BFB5151FCB24D88A71B737BC /* OpenPresentation */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BA88739A0B6B86C4A01CFFCE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				93CE18D013B07081F309409D /* OpenPresentationApp.swift in Sources */,
+				4F8984B76E403F8285B55344 /* PresentationSlide.swift in Sources */,
+				2854B9523D8A221DCBA6E3C0 /* ShowController.swift in Sources */,
+                0A0255000000000000000001 /* VideoTakePlanner.swift in Sources */,
+                52B214000000000000000001 /* CanvasSnapping.swift in Sources */,
+				F4B698E7C9D67A08B85E7F91 /* OperatorView.swift in Sources */,
+				273D8E1B2ED2BA34A79CD5B4 /* SlideEditorView.swift in Sources */,
+				6C3F5E100000000000000001 /* SlideObjectCanvas.swift in Sources */,
+				8757A341EBD8AD8563741F21 /* SlideCanvas.swift in Sources */,
+				555522000000000000000001 /* VideoPlaybackSurface.swift in Sources */,
+                B1C2D3E4F500000000000001 /* AudioOutputRouting.swift in Sources */,
+				4727A1614736FD51CA6BE666 /* OutputManager.swift in Sources */,
+				E913ABCD0000000000000005 /* MediaImporter.swift in Sources */,
+				E913ABCD0000000000000003 /* AudioPlaybackSurface.swift in Sources */,
+				E913ABCD0000000000000001 /* AnimatedGIFImage.swift in Sources */,
+				01AAA51FA7AD1F5A43570220 /* ProjectStore.swift in Sources */,
+				70B021000000000000000001 /* ShowFileActions.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		E975CE72B20D0B40A14CDA33 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B5EB98612D65B79EC15B2904 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		9D5AC55C64F80ED6A314554B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = OpenPresentation;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.openpresentation.prototype.v015;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+			};
+			name = Debug;
+		};
+		1B944A931A2878F3AA404673 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = OpenPresentation;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.openpresentation.prototype.v015;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				SUPPORTED_PLATFORMS = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A1620F59D4BBD6DB25AAEA1B /* Build configuration list for project */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E975CE72B20D0B40A14CDA33 /* Debug */,
+				B5EB98612D65B79EC15B2904 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D7509D2F0C5A44237FAA3D53 /* Build configuration list for target */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9D5AC55C64F80ED6A314554B /* Debug */,
+				1B944A931A2878F3AA404673 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F45E0E98966C96262E12A848 /* Project object */;
+}

@@ -1,0 +1,185 @@
+# v0.3.0-alpha — Advanced Layer Editor and Open Source Setup
+
+- Added eight resize handles for visual layers (corners and edge midpoints), independent axis resizing for shapes/text/media, and optional aspect-ratio lock.
+- Added exact X/Y/W/H pixel inputs for the current 1920×1080 authored canvas. X/Y are the top-left position; values are clamped inside the canvas.
+- Geometry implementation is pure model code with portable regression tests; resize operations register a single undo checkpoint.
+- Preserved compatible v5 show data by making aspect-ratio lock optional, defaulting to off.
+- Prepared for GitHub with a clear README, contributing/security guidance, CI workflow, issue templates and `.gitignore`.
+- The **GitHub repository is not created or published** by this source archive; the maintainer must create the empty repository and push this source.
+- No rendering/audio/output changes. macOS runtime tests and Xcode build required before release is qualified.
+
+# v0.2.34.1 — Layer Cut & Undo fix
+
+- Enabled **Edit → Cut** for selected, unlocked layers in Blind mode. The native Edit command now calls the same editor Cut operation as `⌘X`; standard text selection Cut still uses macOS text editing.
+- Cut serializes the selected unlocked layers to the system clipboard first. Only after a successful write does it remove them from the slide, preventing data loss if copying fails. Locked layers remain protected.
+- Cutting multiple selected layers is one undoable operation (`⌘Z` or Edit → Undo); Redo restores the cut. Paste on a different slide preserves size, position, layer properties, and grouping.
+- Renamed the existing paste-only history registration to a general layer-change checkpoint. No changes to Program, output windows, playback, menus outside of Cut, or show-file format.
+- Validation: the clipboard layer-payload round-trip and six portable regression suites pass, along with Swift parsing and Xcode project-file validation; AppKit clipboard/menu functionality needs confirmation in Xcode on macOS.
+
+# v0.2.34 — Output-fullscreen menu recovery
+
+- Fixed the specific View-menu regression triggered by opening **Windowed Output** and taking that output window into native macOS full screen. The system could replace OpenPresentation's custom View submenu with the default **Show Tab Bar / Show All Tabs / Enter Full Screen** commands when the output became the key/main window. Menu repair now reacts to AppKit window key/main/fullscreen/close lifecycle notifications, not just application reactivation.
+- Keep the original AppKit Edit/View submenu instances and reattach them when the application root menu changes. Reinstallation is deferred to the next main-actor turn so it does not rewrite the menu mid-window notification.
+- Disable macOS tab grouping for the Windowed Output test window, while preserving its green-button full-screen capability.
+- No changes to audio, video, slides, show-file version or the stable menu/clipboard actions introduced in v0.2.33.
+- **Needs Mac verification:** Fullscreen/window focus and native menu tracking cannot be exercised on Linux. In Xcode, open Windowed Output, make it full screen using the green button, then inspect View both while fullscreen and after closing the output. Repeat with automatic slides.
+
+# v0.2.33 — AppKit Edit/View menu routing and stability test
+
+- Replaced the volatile SwiftUI-managed Edit and View submenus with stable native AppKit `NSMenu` instances. Their menu items have fixed identities, and native validation runs when the menu is opened rather than rebuilding the menu as Program changes.
+- Fixed the mismatch between `⌘C` / `⌘V` and Edit → Copy / Paste: the Blind editor now registers explicit selected-layer actions with the menu coordinator. Copy and Paste in the menu use the same custom layer clipboard and preserve native text-field behavior.
+- Edit → Undo / Redo / Select All / Delete Selected Layers are routed to the Blind editor when appropriate. Nonapplicable commands remain disabled in Live mode. Cut remains native text-only (layer Cut is not yet implemented).
+- Replaced the View submenu with stable Live/Blind, Slide Icons/List, Windowed/Fullscreen Output and Operator Full Screen actions. Existing Presentation and File commands remain in place.
+- No changes to saved-show format, compositor, audio/video players, or transition timing.
+- **Verification limitation:** Native macOS menus cannot be compiled or interacted with in this environment. Confirm keyboard + menu actions and keep Edit/View open across multiple automatic slide transitions on the target Mac.
+
+# v0.2.32 — Native menu stability follow-up
+
+- Isolated the application's menu/scene ownership from `ShowController`'s frequent `@Published` slide-take updates. The operator workspace still observes the show normally, but the top-level SwiftUI `App` no longer observes Program changes and consequently should not recompose the native Edit and View menus every time Auto advances a slide.
+- Kept the File → Open Recent submenu responsive to file changes via a narrowly observed submenu view, without restoring high-frequency menu invalidation.
+- No changes to video/audio playback, background compositing, slide timing, canvas rendering, or the saved show-file schema (v5).
+- **Status:** Portable Swift parser and project tests only; macOS runtime verification of both menus during automatic transitions is required. If the issue persists, capture a screen recording and note the macOS/Xcode versions and whether the menu is open when a slide changes.
+
+# v0.2.31 — Background compositing and operator stability
+
+- Transparent/empty slides clear the previous Program background by default. Added per-slide **Keep Previous Background** to explicitly retain the previous background color, image or video. The opt-in is serialized as optional metadata compatible with version-5 show files.
+- Changed Dissolve to blend background and foreground passes separately, preventing mid-transition brightness dips between identical backgrounds and delayed snaps to black on transparent destinations. Continuous video backgrounds keep their existing specialized path.
+- Removed the Blind slide-library green live dot.
+- Improved the Auto Transition button: slide-in/fade-in countdown and a fade-out sweep tied to an automatic take's actual transition duration.
+- Suppressed unintended Program text/layout animations during takes.
+- Made Presentation menu labels stable and stopped Program-driven slide changes from unnecessarily clearing editor focus, aimed at preventing the disappearing View menu. Requires macOS runtime verification.
+- Updated tests for transparent clearing, explicit retention and inherited background audio, while preserving media sessions and v5 compatibility.
+- **Verification:** Swift syntax and portable model tests pass; no native macOS GUI/Xcode build was run here.
+
+# v0.2.30 — Transparency, Staged Blind Edits and Loop Navigation
+
+- Dimmed Program/Next audio mixer strips when no enabled audio media is present; retained Master and inherited background-audio awareness.
+- Removed redundant Program audience-content and mixer cue-level captions.
+- Aligned Slide Auto Time with the right-side transition-duration control, across from Global Auto Time.
+- Prevented Blind layer selection decorations persisting into the Live-mode panel animation.
+- Enabled whole-area clicking on transparent thumbnails in the Blind slide list.
+- Added Blind slide clipboard Copy/Paste/Duplicate and confirmed Delete; copied slides preserve notes, background, timing, collection and layer settings while regenerating unique IDs.
+- Added bounded document undo/redo for layer pastes (including pasted images/text) and slide paste/duplicate/delete, with editor buttons and keyboard shortcuts while the editor is focused.
+
+- Fixed re-taking an edited slide: Program transitions from the previous on-air snapshot into the staged revision instead of snapping immediately. Unchanged retakes remain seamless, and shared video sessions are preserved.
+- Dissolves fade out outgoing foreground alongside incoming content, preventing stale text from popping away at the end of a transparent transition.
+
+- Transparent slide takes inherit the currently live Program color/image/video background without changing saved slide transparency.
+- Editor and library thumbnails display transparent slides on a checkerboard; black slides remain black.
+- Full Program transition frames are backed with black when needed, avoiding abrupt foreground popping. Shared video backgrounds keep their decoder session during subsequent transparent takes.
+- Blind mode freezes the Program navigation sequence until Live mode is restored; editing in Blind no longer changes upcoming Program takes.
+- Previous/Next respect Loop Collection at both ends. One-slide collections do not restart identical media.
+- Switching editor slides closes the macOS background Color Picker panel.
+- Next arrow placed after its label; slide-to-slide morphing removed from video transport UI.
+- Requested native font Picker labels render in their own font families where macOS honors custom menu styling.
+- Added `ROADMAP.md` with planned non-destructive font hover preview, eight-point free resizing, exact layer pixel dimensions, and custom canvas sizes / new-show presets. These larger editing features are **not part of v0.2.30**.
+- PresentationShow remains v5. Not a fully Xcode-compiled or macOS-runtime-verified release.
+
+# v0.2.29 — Inspector, Transport and Blind Editor Cleanup
+
+- Removed audio gain and mute controls from the Program video transport in both Live and Blind. Program transport now only handles video source selection, play/pause and seeking. Per-video audio enable/gain remains in the video layer inspector and Background Video Settings; per-slide/mix audio controls remain in the Audio Mixer.
+- Removed the redundant full-page ScrollView from the Blind slide editor and sized its canvas to the space available, eliminating the artificial outer scrollbar. The independent Layers inspector remains scrollable when there are more layers or attributes than fit on screen.
+- Removed the Opacity control for audio-only layers. Group Opacity operates only on visual layers in mixed groups; audio-layer volumes remain independent.
+- Reduced the fixed Program transport footprint to give the 16:9 preview more space. No changes to the audio/video decoding engine, output routing or show format.
+
+# v0.2.28 — Program, Transition and Blind Inspector Polish
+
+- In **Live mode only**, moved Previous and Next into a full-width top row, with Clear Slide and Blackout directly below. Blind mode retains its compact single-row controls.
+- Removed the redundant inner gray Transition background, leaving one uniform dark card surface consistent with the other operator panels.
+- Moved Slide Notes and background color, HEX, transparency, image import and video background controls to a fixed location on the right side of Blind's editor. The long layer-attributes list scrolls independently. Background video playback controls open in a popover.
+- Reclaimed Blind Program preview space by removing the empty transport reserve on slides without video, compacting active video transport into two rows, and hiding redundant status text in the smaller Blind Program panel.
+- No changes to slide data, underlying AVFoundation playback, transition timing, saved-show format, or audio routing.
+
+# v0.2.27 — Program Controls & Canvas Polish
+
+- Centered the Live and Blind resize handles in a 20pt reserved gap between panels.
+- Expanded and compacted Program video transport to prevent its content overflowing into a scrollbar.
+- Aligned Global and Slide Auto Time menus side by side.
+- Moved Previous, Next, Clear Slide, and Blackout inside Program in both modes.
+- Replaced native Blackout button tint with inactive-window-safe red/green backgrounds, animated between states.
+- Removed audio-only objects from the visual canvas while preserving their Layers-list management and playback.
+- Retained existing playback, document schema, and Live/Blind editing protection.
+
+## v0.2.26 — November 8, 2026
+- Moved global transition duration to the right of the effect selector on the same row.
+- Maximized Program preview within a responsive 16:9 viewport without disturbing reserved transport space.
+- Relocated Live Previous/Next under Program and above the Slides section.
+- Matched Notes/Transition column height to adjacent Live control panels and filled the Blind Transition slot.
+- Matched the Blind Audio Mixer to the neutral gray live Program surface and removed the shield icon.
+- Added dedicated Previous/Next Program-take controls to Blind Program; removed redundant Blind footer navigation.
+- Decoupled Blind editing selection from automatic Program takes and manual Program navigation.
+- Kept existing media engine, saved-show schema v5, and automatic playback timing.
+
+## v0.2.25 — November 8, 2026
+
+- Centered Auto Transition and Loop Collection buttons, aligned them above timing selectors, and switched enabled/disabled appearances to contrasting neutral grays.
+- Placed global Transition Time and Auto Time menus side by side while preserving slide-specific overrides.
+- Extended the Program card's gray background to the entire allotted panel height.
+- Removed splitter lines and kept only a centered draggable grab handle, retaining drag bounds and saved layout sizes.
+- Unified Live Slides header, view mode, count, and the slide list/grid inside one shared gray container.
+- No change to v5 show-file structure or to the playback and output engines.
+
+## v0.2.24 — November 8, 2026
+
+- Mixer faders stretch vertically with mute controls anchored at the bottom; matched cue identity animates Next-to-Program movement, and Blind mode shows a gray live-audio warning.
+- Swapped Collections and Audio Mixer positions; placed Live Notes above Transition in a split column, moved Blind Notes below layer attributes, and gave Slides a gray heading card.
+- Reserved Program/video-transport height and clamped Live's splitter position to the same limits used by the layout.
+- Added slide gain/mute controls within the Program video transport, and changed the Notes expansion icon to an edit symbol.
+- Added saved global Auto Transition timing presets + custom time, per-slide timing overrides, and a button-style Loop Collection control.
+- Kept Auto running while editing in Blind mode; moved its status/countdown button into Blind Program rather than its Transition controls.
+- Preserved Live/Blind mode on opening show files; app starts with a blank show. Added New Blank Show and unsaved-change confirmation for Quit/show replacement.
+- v5 JSON format retained with optional `globalAutoAdvanceSeconds` key; no conversion required for existing shows.
+
+## v0.2.23 — Operator Workspace, Auto Transition and Escape Clear
+
+- Fixed-label Auto Transition button with active/inactive styling and a countdown sweep.
+- Automatic playback now continues onto untimed slides (10-second fallback) and loops through the selected collection if enabled.
+- Mixer cue strips move and fade between Program/Next slide labels; Master moved right of a divider.
+- Collections moved to an independent scrollable card with highlighted current selection.
+- Slide notes moved to their own card underneath Program.
+- Transition, Audio Mixer and Collections panels stretch to the slide-grid boundary. Added draggable, persisted vertical split heights for Live and Blind modes.
+- Escape performs Clear Slide while an audience output is open, without closing the output. Repeated Escape does not restore the slide.
+- Kept show JSON at format version 5 and the existing media/transition engines intact.
+
+## v0.2.22.1 — November 8, 2026
+- Fixed Xcode compiler error in `SlideCanvas.swift`: `cueAudioGainOverride` must precede `continuingVideoPaths` in the `SlideCanvas` initializer. No behavior changes.
+
+# OpenPresentation Changelog
+
+## v0.2.22 — Per-Slide Audio Cue Mixing and Timed Transitions
+
+- Replaced horizontal audio controls with vertical Master, Program and Next faders, mute buttons beneath each strip, and dynamic slide-title labels.
+- Persisted cue gain/mute per slide, eliminating the global Next-to-Program gain copy that could amplify outgoing audio before its transition.
+- Added gain interpolation for continuous shared-background video between slides.
+- Added saved show-level global transition duration, preset selector and custom seconds input.
+- Added right-click transition-duration override per slide in all slide views, with default/presets/custom options.
+- Replaced the Auto checkbox with an opt-in button and elapsed-dwell progress sweep plus remaining-time indicator.
+- Maintained v5 JSON backward compatibility and added regression tests for cue audio, durations and older shows.
+
+**Alpha:** macOS build, drag interactions, and media timing still require real-device testing.
+
+## v0.2.20 — Keyboard Editing, Seamless Re-Take, Support Links
+
+- Delete/Forward Delete selected layers from Blind editor; keep locked layers safe.
+- Standard copy/paste of slide layers across slides using ⌘C / ⌘V and right-click Paste.
+- Paste external images and plain text as independent slide layers.
+- Remove redundant visible Paste controls.
+- Retake the currently live slide without a new fade/restart.
+- Preserve consecutive shared video backgrounds at full opacity during slide-content dissolves.
+- Keep active output toggles green even if the operator window is not active.
+- Stabilize the top Live/Blind selector; move Blind status badge to the bottom status bar.
+- Add Help → About OpenPresentation & Support including HiTech Productions contact, website, socials, open-source/license, alpha, and no-warranty statements.
+- Preserve existing v5 show-file schema.
+
+All features in this alpha release require verification in a macOS Xcode build.
+
+## v0.2.21 — Collections, auto advance, media import and audio faders
+
+- Fixed output toggle hit areas.
+- Layer clipboard now preserves exact position, dimensions and properties without offset.
+- Added per-slide timed dwell, opt-in automatic take and collection-scoped looping.
+- Added named collections and right-click slide assignment; saved in the v5 show JSON with backward-compatible optional metadata.
+- Combined image, video and audio import under Add Media… with supported-format filtering.
+- Added basic Master/Program/Next cue gain and mute faders. True live PCM metering is deferred.
+- Reduced unnecessary transport-layout animations and added small image-decode caching.
+- No deliberate changes to the existing AVFoundation playback-session lifecycle.

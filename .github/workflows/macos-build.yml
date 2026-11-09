@@ -1,0 +1,29 @@
+name: macOS build and model checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build OpenPresentation without code signing
+        run: |
+          xcodebuild -project OpenPresentation.xcodeproj \
+            -scheme OpenPresentation -configuration Debug \
+            -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+      - name: Run eight-handle geometry test
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            OpenPresentation/Core/CanvasSnapping.swift \
+            Tests/LayerGeometryEightHandles.swift -o /tmp/layer-geometry
+          /tmp/layer-geometry
+      - name: Run existing show compatibility test
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            OpenPresentation/Storage/ProjectStore.swift \
+            Tests/ModelCompatibility.swift -o /tmp/show-compatibility
+          /tmp/show-compatibility

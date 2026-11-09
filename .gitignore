@@ -1,0 +1,25 @@
+# Xcode and macOS
+.DS_Store
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+*.xccheckout
+*.xcscmblueprint
+*.xcworkspace/xcuserdata/
+*.ipa
+*.app/
+*.dSYM/
+# Private signing and environment secrets
+.env
+.env.*
+*.p12
+*.mobileprovision
+*.cer
+# Test executables / local artifacts
+Tests/model_compatibility
+*.opshow
+*.opshow.media/
+*.media/
+*.swp
