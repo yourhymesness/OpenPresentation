@@ -1,3 +1,7 @@
+# OpenPresentation v0.4.6 — Native-refresh Peak Meters
+
+The audio mixer now draws **actual peak bars** (instead of RMS average bars), so the white peak-hold line rises with the bar and only separates briefly when the signal falls. The meter's UI uses SwiftUI's native animation timeline rather than a fixed 60 Hz timer, adapting to 60/120/144 Hz displays when macOS permits. Source audio PCM polling stays at 20 Hz. Pre/Post-fader routing and v0.4.5 windowed-output improvements remain intact.
+
 # OpenPresentation v0.4.5 — Windowed Output Performance
 
 Windowed Output has priority over the silent Program monitor when Fullscreen Output is closed. This prevents the audience window from repeatedly seeking to a slow preview under heavy multi-video shows. Main-thread progress observers run less often for non-primary displays **without reducing the video picture's frame rate**. Redundant audio-meter taps on silent and audio-disabled videos are avoided. The v0.4.4 smooth **Pre/Post** mixer design and zero-volume media startup fix are retained.

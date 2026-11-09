@@ -1425,90 +1425,63 @@ private struct AutoCountdownButton: View {
 
 /// A real, vertically oriented fader (not a rotated slider) with a continuous
 /// hit target, separate mute below, and deterministic 0...1 binding.
-/// Actual decoded PCM readings, scaled into a -60...0 dBFS display.
-/// The thin line holds the recent peak; red latches when a source might clip.
+/// Display-synchronized peak ballistics; the white line rides rising bars
+/// and briefly holds above them during a fall, as in conventional peak meters.
 private struct StereoAudioMeter: View {
     let reading: StereoSignal
     let estimated: Bool
-    @State private var shownLeft = 0.0
-    @State private var shownRight = 0.0
-    @State private var heldLeft = 0.0
-    @State private var heldRight = 0.0
-    @State private var heldLeftUntil = Date.distantPast
-    @State private var heldRightUntil = Date.distantPast
-    @State private var clipUntil = Date.distantPast
-    @State private var previousTick = Date.distantPast
+
+    // Reference-only state is advanced inside the display timeline without
+    // publishing a separate @State mutation on every frame. This keeps the
+    // meter redraw local and avoids triggering the larger Program layout.
+    @State private var follower = StereoPeakFollower()
 
     var body: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 4) {
-                Rectangle().fill(Color.white.opacity(0.85))
-                    .frame(width: 12, height: 2)
-                Text("Peak")
-                    .font(.system(size: 9, weight: .medium))
-                Spacer(minLength: 0)
-                Text(Date() < clipUntil ? "CLIP" : (estimated ? "EST" : "dBFS"))
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Date() < clipUntil ? Color.red : Color.secondary)
-            }
-            .frame(height: 13)
-
-            GeometryReader { geometry in
+        // AnimationTimelineSchedule adapts to the host display's supported
+        // cadence (e.g. ProMotion/120 Hz or external 144 Hz when available).
+        // Audio PCM is still polled at 20 Hz; this only smooths visible bars.
+        TimelineView(.animation) { timeline in
+            let frame = follower.advance(to: timeline.date, signal: reading)
+            VStack(spacing: 4) {
                 HStack(spacing: 4) {
-                    channel(level: shownLeft, peak: heldLeft)
-                    channel(level: shownRight, peak: heldRight)
-                    tickLabels(height: geometry.size.height)
+                    Rectangle().fill(Color.white.opacity(0.85))
+                        .frame(width: 12, height: 2)
+                    Text("Peak")
+                        .font(.system(size: 9, weight: .medium))
+                    Spacer(minLength: 0)
+                    Text(frame.clipping ? "CLIP" : (estimated ? "EST" : "dBFS"))
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundStyle(frame.clipping ? Color.red : Color.secondary)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+                .frame(height: 13)
 
-            HStack(spacing: 4) {
-                Text("L").frame(width: 16)
-                Text("R").frame(width: 16)
-                Spacer(minLength: 0)
+                GeometryReader { geometry in
+                    HStack(spacing: 4) {
+                        channel(level: frame.left, heldPeak: frame.heldLeft)
+                        channel(level: frame.right, heldPeak: frame.heldRight)
+                        tickLabels(height: geometry.size.height)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                HStack(spacing: 4) {
+                    Text("L").frame(width: 16)
+                    Text("R").frame(width: 16)
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
             }
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
-            .foregroundStyle(.secondary)
-        }
-        .frame(width: 97)
-        .padding(.vertical, 4)
-        .help(estimated
-              ? "POST-FADER estimated Master: after cue and master gains; not a hardware loopback or sample-synchronous device measurement."
-              : "PRE-FADER stereo source PCM before the slide cue fader. Green = RMS, white line = recent peak, red = possible clipping.")
-        // The PCM taps poll at 20 Hz, but this independent 60 Hz display clock
-        // interpolates between readings for fluid, frame-rate-independent motion.
-        .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { now in
-            let elapsed = previousTick == .distantPast ? 1.0 / 60.0
-                : max(0.001, min(0.1, now.timeIntervalSince(previousTick)))
-            previousTick = now
-            shownLeft = MeterBallistics.follow(current: shownLeft,
-                target: SignalMeterMath.fraction(reading.rmsLeft), elapsed: elapsed)
-            shownRight = MeterBallistics.follow(current: shownRight,
-                target: SignalMeterMath.fraction(reading.rmsRight), elapsed: elapsed)
-            let peakL = SignalMeterMath.fraction(reading.peakLeft)
-            let peakR = SignalMeterMath.fraction(reading.peakRight)
-            if peakL >= heldLeft && peakL > 0.0001 {
-                heldLeft = peakL
-                heldLeftUntil = now.addingTimeInterval(1.2)
-            } else if now > heldLeftUntil {
-                heldLeft = MeterBallistics.follow(current: heldLeft, target: peakL,
-                    elapsed: elapsed, release: 0.40)
-            }
-            if peakR >= heldRight && peakR > 0.0001 {
-                heldRight = peakR
-                heldRightUntil = now.addingTimeInterval(1.2)
-            } else if now > heldRightUntil {
-                heldRight = MeterBallistics.follow(current: heldRight, target: peakR,
-                    elapsed: elapsed, release: 0.40)
-            }
-            if reading.peakLeft >= 0.999 || reading.peakRight >= 0.999 {
-                clipUntil = now.addingTimeInterval(1.3)
-            }
+            .frame(width: 97)
+            .padding(.vertical, 4)
+            .help(estimated
+                ? "POST-FADER estimated Master: peak bars show signal after cue and master gains; not a hardware output meter."
+                : "PRE-FADER decoded-PCM peak level. White line rides the bar on rises and briefly holds recent peaks.")
         }
     }
 
     @ViewBuilder
-    private func channel(level: Double, peak: Double) -> some View {
+    private func channel(level: Double, heldPeak: Double) -> some View {
         GeometryReader { area in
             let height = max(2, area.size.height)
             let clamped = min(1, max(0, level))
@@ -1523,13 +1496,13 @@ private struct StereoAudioMeter: View {
                             startPoint: .bottom, endPoint: .top))
                         .frame(height: max(2, height * CGFloat(clamped)))
                 }
-                if peak > 0.001 {
+                if heldPeak > 0.001 {
                     Rectangle()
-                        .fill(peak >= 0.96 ? Color.red : Color.white)
+                        .fill(heldPeak >= 0.96 ? Color.red : Color.white)
                         .frame(height: 2)
                         .position(x: area.size.width / 2,
                                   y: CGFloat(MeterBallistics.peakPosition(
-                                    height: Double(height), fraction: peak)))
+                                    height: Double(height), fraction: heldPeak)))
                 }
             }
             .frame(width: 16, height: height)
@@ -1539,7 +1512,7 @@ private struct StereoAudioMeter: View {
     }
 
     private func tickLabels(height: CGFloat) -> some View {
-        GeometryReader { area in
+        GeometryReader { _ in
             ForEach([-48, -24, -12, -6, 0], id: \.self) { value in
                 HStack(spacing: 2) {
                     Rectangle().fill(Color.secondary.opacity(0.5))

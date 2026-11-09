@@ -35,6 +35,68 @@ enum MeterBallistics {
     }
 }
 
+
+/// Display-facing peak ballistic state, separate from the decoded-PCM polling
+/// frequency. Pure Foundation code so 60/120/144 Hz timing can be regression
+/// tested even on machines without AppKit or a dedicated audio device.
+/// A peak-hold marker rides the leading edge of the moving peak bar on rises,
+/// holds briefly after a decline, then falls toward the current bar.
+struct AnimatedStereoPeak {
+    let left: Double
+    let right: Double
+    let heldLeft: Double
+    let heldRight: Double
+    let clipping: Bool
+}
+
+final class StereoPeakFollower {
+    private var lastDate: Date?
+    private var shownLeft: Double = 0
+    private var shownRight: Double = 0
+    private var heldLeft: Double = 0
+    private var heldRight: Double = 0
+    private var holdLeftUntil: Date = .distantPast
+    private var holdRightUntil: Date = .distantPast
+    private var clipUntil: Date = .distantPast
+
+    func advance(to date: Date, signal: StereoSignal) -> AnimatedStereoPeak {
+        let elapsed = lastDate.map { min(0.1, max(0, date.timeIntervalSince($0))) }
+            ?? (1.0 / 60.0)
+        lastDate = date
+
+        // The filled bar follows decoded signal PEAK, not RMS average.
+        // Otherwise the held peak line is permanently detached above it.
+        shownLeft = MeterBallistics.follow(
+            current: shownLeft, target: SignalMeterMath.fraction(signal.peakLeft),
+            elapsed: elapsed)
+        shownRight = MeterBallistics.follow(
+            current: shownRight, target: SignalMeterMath.fraction(signal.peakRight),
+            elapsed: elapsed)
+
+        func hold(current: Double, bar: Double, until: inout Date) -> Double {
+            guard bar > 0.00001 || current > 0.00001 else { return 0 }
+            if bar >= current {
+                until = date.addingTimeInterval(0.45)
+                return bar
+            }
+            if date < until { return current }
+            // Decay behind the falling signal, never crossing through its bar.
+            return max(bar, MeterBallistics.follow(
+                current: current, target: bar, elapsed: elapsed, release: 0.25))
+        }
+        heldLeft = hold(current: heldLeft, bar: shownLeft, until: &holdLeftUntil)
+        heldRight = hold(current: heldRight, bar: shownRight, until: &holdRightUntil)
+
+        if signal.peakLeft >= 0.999 || signal.peakRight >= 0.999 {
+            clipUntil = date.addingTimeInterval(1.3)
+        }
+        return AnimatedStereoPeak(
+            left: shownLeft, right: shownRight,
+            heldLeft: max(shownLeft, heldLeft), heldRight: max(shownRight, heldRight),
+            clipping: date < clipUntil)
+    }
+}
+
 enum SignalMeterMath {
     static func gainStages(preFader: Double, fader: Double, master: Double,
                            envelope: Double) -> (pre: Double, post: Double) {

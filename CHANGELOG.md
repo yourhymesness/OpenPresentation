@@ -1,3 +1,11 @@
+## v0.4.6 — Peak meter display cadence fix
+
+- Made filled stereo bars follow the **measured audio peaks**, not RMS average, so the peak-hold line rides the bar when new peaks occur. It holds briefly when the bar drops and decays back toward the current level.
+- Replaced three independent fixed 60 Hz SwiftUI meter timers with native animation timelines. The OS schedules display updates to suit each window's display refresh (60, 120, 144 Hz when supported), without increasing decoded-audio polling or affecting video frame rate.
+- All ballistic calculations are elapsed-time-based to remain consistent at different effective refresh rates or under frame drops; preserve the Pre/ Post fader routing and the Windowed Output optimizations.
+- Added independent pure-Foundation tests of rising-peak alignment, hold/decay, clipping and display cadence at 60/120/144 Hz.
+- Remaining occasional Program preview stalls under many video layers should be diagnosed as playback/compositing and memory pressure, not CPU-core affinity. Fullscreen audience output retains priority.
+
 ## v0.4.5 — Windowed-output workload and smooth-meter follow-up
 
 - Correct output priority: Fullscreen > Windowed > silent Program monitor. When Windowed is the only audience output, it no longer chases the possibly delayed Program preview through repeated seeks.

@@ -73,3 +73,8 @@ jobs:
             OpenPresentation/Core/VideoTakePlanner.swift \
             Tests/VideoPlaybackWorkloadTests.swift -o /tmp/video-workload
           /tmp/video-workload
+      - name: Test adaptive peak bars at 60, 120 and 144 Hz
+        run: |
+          swiftc OpenPresentation/Core/SignalMeterMath.swift \
+            Tests/RefreshAdaptivePeakMeterTests.swift -o /tmp/peak-refresh
+          /tmp/peak-refresh
