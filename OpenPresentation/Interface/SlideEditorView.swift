@@ -136,7 +136,7 @@ struct SlideEditorView: View {
                                           var before = slide
                                           if let index = before.layers.firstIndex(where: { $0.id == original.id }) {
                                               before.layers[index] = original
-                                              controller?.recordLayerPasteUndo(before: before, name: "Resize Layer")
+                                              controller?.recordLayerChangeUndo(before: before, name: "Resize Layer")
                                           }
                                       },
                                       onReorderLayer: { id, action in reorderLayer(id, action: action) },
@@ -569,7 +569,7 @@ struct SlideEditorView: View {
                 rect.applied(to: &adjusted)
                 guard binding.wrappedValue != adjusted else { return }
                 binding.wrappedValue = adjusted
-                controller?.recordLayerPasteUndo(before: before, name: "Set Layer Geometry")
+                controller?.recordLayerChangeUndo(before: before, name: "Set Layer Geometry")
             }
         )
     }
