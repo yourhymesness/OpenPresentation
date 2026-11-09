@@ -1,3 +1,11 @@
+# v0.3.1 — Visual Font Browser (Alpha)
+
+- Replaced the native font Picker with a searchable floating font browser. Installed font families are displayed in their own typefaces, with an “Aa Bb 123” sample.
+- Hovering over a font temporarily previews that typeface directly on the selected text layer on the Blind canvas. Leaving the font or dismissing the browser rolls the preview back immediately, without modifying the slide model or Program.
+- Clicking a font commits it and registers one undo checkpoint. Switching slides or layers cancels a pending preview.
+- Added a Foundation-only regression test to confirm the hover draft does not mutate or reserialize the authored slide.
+- Preserved v0.3.0's eight resize handles and fixed the stale geometry-undo method calls from the initial v0.3.0 source ZIP, matching the latest GitHub main.
+
 # v0.3.0-alpha — Advanced Layer Editor and Open Source Setup
 
 - Added eight resize handles for visual layers (corners and edge midpoints), independent axis resizing for shapes/text/media, and optional aspect-ratio lock.

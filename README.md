@@ -15,6 +15,17 @@ OpenPresentation is an evolving ProPresenter-style application with a separate *
 
 There are currently **no distributed signed/notarized app binaries**. Build the app from the Xcode source. An Apple Silicon Mac is the primary development target; other Mac hardware has not been qualified.
 
+## What's new in v0.3.1 alpha — Visual Font Browser
+
+- **Searchable font browser** in the Blind layer inspector, with installed font-family names displayed in their own typefaces and a sample line (`Aa Bb 123`).
+- **Live-on-canvas hover preview**: hover a font to see it on the selected text layer. Leaving the row or closing the browser restores the original, without editing the saved slide or changing Program.
+- **Click to apply** the font to that layer, with a single Undo step. Switching slides or layers cancels a pending preview.
+- The existing eight-handle resizer and pixel-precise geometry editor from v0.3.0 remain available.
+
+### How to try it
+
+In Blind mode, select a text layer, open the **Font** control in the layer inspector, and search or hover. Move the pointer away to restore the original typeface, or click a choice to commit it. Check that a live Program slide remains unchanged until deliberately taken again.
+
 ## What's in v0.3.0 alpha
 
 - **Eight resize handles** (four corners, four edge midpoints) for visual layers; resize width and height independently.
@@ -22,7 +33,7 @@ There are currently **no distributed signed/notarized app binaries**. Build the 
 - Precise **X, Y, W and H** attributes in pixels on the current **1920×1080** presentation canvas (X/Y measure the layer's top-left corner).
 - Existing Blind/Live workflow, media rendering and show-file format retained.
 
-Older v5 show documents remain compatible: the new aspect-lock setting is optional and defaults to unlocked. **Variable project canvas sizes and font-hover previews are planned**, not yet implemented.
+Older v5 show documents remain compatible: the new aspect-lock setting is optional and defaults to unlocked. **Variable project canvas sizes are planned**, not yet implemented. The v0.3.1 font hover browser previews in Blind only.
 
 ## Limitations
 

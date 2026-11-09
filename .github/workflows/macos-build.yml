@@ -27,3 +27,8 @@ jobs:
             OpenPresentation/Storage/ProjectStore.swift \
             Tests/ModelCompatibility.swift -o /tmp/show-compatibility
           /tmp/show-compatibility
+      - name: Test non-destructive font hover preview
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            Tests/FontHoverPreview.swift -o /tmp/font-hover-preview
+          /tmp/font-hover-preview

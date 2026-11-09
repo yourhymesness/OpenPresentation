@@ -38,6 +38,12 @@ private enum LayerClipboard {
     static var hasLayers: Bool { NSPasteboard.general.data(forType: type) != nil }
 }
 
+/// Read installed font families once. A saved show may still use a family that
+/// is missing on this machine, so it is added separately by SlideEditorView.
+private enum InstalledFontFamilies {
+    static let names = NSFontManager.shared.availableFontFamilies
+}
+
 /// Layer-based slide editor. Edits update Preview only; Program uses a frozen
 /// slide value until the operator explicitly takes a new snapshot live.
 struct SlideEditorView: View {
@@ -60,14 +66,41 @@ struct SlideEditorView: View {
     // Text editors / text fields keep their native Copy, Paste, and Delete.
     @State private var editorKeyMonitor: Any?
     @State private var menuRegistrationID = UUID()
+    // Font hover is local, ephemeral UI state. Only a click writes to `slide`.
+    @State private var isFontBrowserPresented = false
+    @State private var fontSearch = ""
+    @State private var hoveredFontFamily: String?
 
     private let maxImportedImageSize = 30_000_000
     private let maxLayersPerSlide = 40
 
     private var fontFamilies: [String] {
-        let installed = NSFontManager.shared.availableFontFamilies
+        // NSFontManager can provide hundreds of installed families. Cache the
+        // system list and only add families used by this particular show.
         let saved = slide.layers.filter { $0.kind == .text }.map(\.fontFamily)
-        return Array(Set(installed + saved + ["Helvetica Neue"])).sorted()
+        return Array(Set(InstalledFontFamilies.names + saved)).sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    private var matchingFonts: [String] {
+        let query = fontSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty ? fontFamilies : fontFamilies.filter {
+            $0.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var fontPreviewLayerID: UUID? {
+        guard isFontBrowserPresented, hoveredFontFamily != nil,
+              let selectedLayerID,
+              slide.layers.contains(where: { $0.id == selectedLayerID && $0.kind == .text })
+        else { return nil }
+        return selectedLayerID
+    }
+
+    private func closeFontBrowser() {
+        hoveredFontFamily = nil
+        isFontBrowserPresented = false
     }
 
     private var selectedLayerBinding: Binding<SlideLayer>? {
@@ -131,6 +164,8 @@ struct SlideEditorView: View {
                                       selectedLayerID: $selectedLayerID,
                                       selectedLayerIDs: $selectedLayerIDs,
                                       snapToGuides: snapToGuides,
+                                      previewFontLayerID: fontPreviewLayerID,
+                                      previewFontFamily: hoveredFontFamily,
                                       onScaleLayer: { id, preset in scaleLayer(id, preset: preset) },
                                       onResizeCompleted: { original in
                                           var before = slide
@@ -224,6 +259,8 @@ struct SlideEditorView: View {
             }
         }
         .onChange(of: slide.id) { _, _ in
+            closeFontBrowser()
+            fontSearch = ""
             // The standard macOS ColorPicker uses a shared floating panel.
             // Keep it from editing the next slide after a selection change.
             NSColorPanel.shared.close()
@@ -231,7 +268,16 @@ struct SlideEditorView: View {
             selectedLayerID = nil
             selectedLayerIDs = []
         }
+        .onChange(of: selectedLayerID) { _, _ in
+            // A font candidate belongs to one text layer, not the next
+            // selection. Dismissing guarantees an immediate visual rollback.
+            closeFontBrowser()
+        }
+        .onChange(of: isFontBrowserPresented) { _, presented in
+            if !presented { hoveredFontFamily = nil }
+        }
         .onDisappear {
+            closeFontBrowser()
             OpenPresentationNativeMenus.shared.unregisterEditor(owner: menuRegistrationID)
             NSColorPanel.shared.close()
             if let monitor = editorKeyMonitor { NSEvent.removeMonitor(monitor) }
@@ -545,6 +591,96 @@ struct SlideEditorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// A searchable, custom SwiftUI font list (unlike a native Picker, it can
+    /// display family names in their own fonts and send pointer-hover previews).
+    private func fontBrowser(for binding: Binding<SlideLayer>) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("FONT BROWSER")
+                    .font(.caption.weight(.bold))
+                Spacer()
+                Button { closeFontBrowser() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .help("Cancel font preview")
+            }
+            TextField("Search installed fonts…", text: $fontSearch)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Search installed font families")
+                .onExitCommand { closeFontBrowser() }
+            HStack {
+                Text("Hover: canvas preview • Click: apply")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(matchingFonts.count) fonts")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 3) {
+                    if matchingFonts.isEmpty {
+                        Text("No matching fonts")
+                            .foregroundStyle(.secondary)
+                            .padding(12)
+                    }
+                    ForEach(matchingFonts, id: \.self) { family in
+                        let isSelected = binding.wrappedValue.fontFamily == family
+                        let isHovered = hoveredFontFamily == family
+                        Button {
+                            guard let selectedLayerID,
+                                  let index = slide.layers.firstIndex(where: {
+                                      $0.id == selectedLayerID && $0.kind == .text
+                                  }) else { closeFontBrowser(); return }
+                            let before = slide
+                            slide.layers[index].fontFamily = family
+                            // Register exactly one undo action for a committed
+                            // choice; hovering doesn't touch the document.
+                            controller?.recordLayerChangeUndo(before: before, name: "Change Font")
+                            closeFontBrowser()
+                        } label: {
+                            HStack(spacing: 9) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(family)
+                                        .font(.custom(family, size: 14))
+                                        .lineLimit(1)
+                                    Text("Aa Bb 123")
+                                        .font(.custom(family, size: 21))
+                                        .lineLimit(1)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                if isSelected {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background((isHovered || isSelected)
+                                        ? Color.accentColor.opacity(isHovered ? 0.20 : 0.10)
+                                        : Color.clear,
+                                        in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            if hovering { hoveredFontFamily = family }
+                            else if hoveredFontFamily == family { hoveredFontFamily = nil }
+                        }
+                        .accessibilityLabel("Preview font: \(family)")
+                    }
+                }
+                .padding(4)
+            }
+            .frame(height: 310)
+        }
+        .padding(12)
+        .frame(width: 338)
+    }
+
     /// Precise X/Y/W/H fields are based on the current 1920×1080 show canvas.
     /// Fields change the same normalized geometry as the eight drag handles.
     private func pixelBinding(_ binding: Binding<SlideLayer>, field: LayerDimensionField) -> Binding<Double> {
@@ -640,18 +776,35 @@ struct SlideEditorView: View {
                     .frame(height: 60)
                     .background(Color.black.opacity(0.15), in: RoundedRectangle(cornerRadius: 5))
 
-                Picker("Font", selection: binding.fontFamily) {
-                    ForEach(fontFamilies, id: \.self) { font in
-                        // Prefer the font family shown in its own typeface;
-                        // some macOS versions may normalize native menu styles.
-                        Text(font)
-                            .font(.custom(font, size: 13))
-                            .tag(font)
+                HStack(spacing: 6) {
+                    Text("Font").font(.caption)
+                    Button {
+                        fontSearch = ""
+                        hoveredFontFamily = nil
+                        isFontBrowserPresented = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(binding.wrappedValue.fontFamily)
+                                .font(.custom(binding.wrappedValue.fontFamily, size: 13))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 7)
+                        .frame(height: 26)
+                        .background(Color.gray.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Browse fonts, current: \(binding.wrappedValue.fontFamily)")
+                    .help("Hover over fonts to preview on the Blind canvas; click to apply")
+                    .popover(isPresented: $isFontBrowserPresented, arrowEdge: .leading) {
+                        fontBrowser(for: binding)
                     }
                 }
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .font(.caption)
 
                 HStack(spacing: 6) {
                     Text("Size").font(.caption)

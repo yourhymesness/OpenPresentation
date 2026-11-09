@@ -388,6 +388,18 @@ struct PresentationSlide: Identifiable, Codable, Equatable {
         return copy
     }
 
+    /// Render-only draft for the Blind font browser. The original slide and
+    /// its stored font remain unchanged until the operator clicks Apply.
+    /// Output and Program continue using their immutable saved/taken slides.
+    func previewingFont(_ family: String?, onLayer layerID: UUID?) -> PresentationSlide {
+        guard let family, !family.isEmpty, let layerID,
+              let index = layers.firstIndex(where: { $0.id == layerID && $0.kind == .text })
+        else { return self }
+        var copy = self
+        copy.layers[index].fontFamily = family
+        return copy
+    }
+
     var displayTitle: String {
         let saved = slideTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !saved.isEmpty { return saved }

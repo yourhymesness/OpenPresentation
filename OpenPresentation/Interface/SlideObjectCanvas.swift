@@ -9,6 +9,10 @@ struct SlideObjectCanvas: View {
     @Binding var selectedLayerID: UUID?
     @Binding var selectedLayerIDs: Set<UUID>
     var snapToGuides: Bool
+    // Temporary font candidate; used ONLY for the visual canvas. Never writes
+    // through the slide binding and cannot affect the live Program snapshot.
+    var previewFontLayerID: UUID? = nil
+    var previewFontFamily: String? = nil
     @State private var initialPositions: [UUID: LayerCenter] = [:]
     @State private var movingIDs: Set<UUID> = []
     @State private var activeGuides: [CanvasSnapGuide] = []
@@ -22,8 +26,11 @@ struct SlideObjectCanvas: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                SlideCanvas(slide: slide, showTransparencyCheckerboard: true)
-                    .allowsHitTesting(false)
+                SlideCanvas(
+                    slide: slide.previewingFont(previewFontFamily, onLayer: previewFontLayerID),
+                    showTransparencyCheckerboard: true
+                )
+                .allowsHitTesting(false)
 
                 Color.clear
                     .contentShape(Rectangle())

@@ -1,3 +1,9 @@
+## Implemented in v0.3.1
+
+- Searchable font browser with font names and `Aa Bb 123` samples displayed in their own typefaces.
+- Hover-to-preview on the selected text layer directly on the Blind canvas; click to apply with undo.
+- Visual-only previews do not change saved show data or Program.
+
 # Roadmap
 
 ## v0.3.x — Editor (current)
