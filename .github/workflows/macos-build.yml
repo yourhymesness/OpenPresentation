@@ -62,3 +62,8 @@ jobs:
           swiftc OpenPresentation/Core/SignalMeterMath.swift \
             Tests/AudioMeterMath.swift -o /tmp/audio-meter-math
           /tmp/audio-meter-math
+      - name: Test pre/post-fader meter stages, smoothing and peak bounds
+        run: |
+          swiftc OpenPresentation/Core/SignalMeterMath.swift \
+            Tests/MeterRedesignTests.swift -o /tmp/meter-redesign
+          /tmp/meter-redesign

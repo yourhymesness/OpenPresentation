@@ -1,3 +1,11 @@
+## v0.4.4 — Fluid mixer redesign, Pre/Post routing, silent media startup
+
+- Redesigned the mixer to clarify Pre on each cue and Post on Master; L/R stereo level columns include dBFS ticks (0, -6, -12, -24, -48), a labeled white peak-hold marker, and clear clipping text instead of the unexplained circle and vertical EST/dB text.
+- Display refresh now follows a 60 Hz ballistic smoother with fast attack, slower release and 1.2 second peak hold, independent of the 20 Hz PCM poll cadence. Peak indicator placement uses a top-aligned, clamped coordinate system.
+- Cue metering uses source PCM **before its cue fader**, while Master uses source + cue + Master gains. The Master is still a signal-derived estimate, not a device loopback.
+- Prevented brief startup audio leaks when video/audio is disabled: retained video engines apply the new mute/zero-volume setting **before** reattaching/resuming; new media players start muted at volume zero.
+- Added portable tests for pre/post gain staging, smoothing and peak geometry. Validate transitions/loop playback and media-audio-disabled with an actual macOS output before using in production.
+
 ## v0.4.3 — Live PCM Audio Meters (Alpha)
 - Added live stereo RMS level bars, peak hold, and red peak/clip indicators alongside the Program and Master mixer faders. The Next meter remains idle until the next cue is taken on Program.
 - Added per-player decoded-PCM observation with file-based AVAudioMix / MediaToolbox audio taps, including local audio and video media. Audio samples pass through the taps unchanged.

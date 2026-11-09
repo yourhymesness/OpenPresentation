@@ -1437,67 +1437,124 @@ private struct StereoAudioMeter: View {
     @State private var heldLeftUntil = Date.distantPast
     @State private var heldRightUntil = Date.distantPast
     @State private var clipUntil = Date.distantPast
+    @State private var previousTick = Date.distantPast
 
     var body: some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 3) {
-                Image(systemName: Date() < clipUntil ? "exclamationmark.circle.fill" : "circle.fill")
-                    .font(.system(size: 7))
-                    .foregroundStyle(Date() < clipUntil ? Color.red : Color.gray.opacity(0.35))
-                Text(estimated ? "EST" : "dB")
-                    .font(.system(size: 7, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 4) {
+            HStack(spacing: 4) {
+                Rectangle().fill(Color.white.opacity(0.85))
+                    .frame(width: 12, height: 2)
+                Text("Peak")
+                    .font(.system(size: 9, weight: .medium))
+                Spacer(minLength: 0)
+                Text(Date() < clipUntil ? "CLIP" : (estimated ? "EST" : "dBFS"))
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Date() < clipUntil ? Color.red : Color.secondary)
             }
-            GeometryReader { frame in
-                HStack(spacing: 2) {
-                    channel(height: frame.size.height, rms: shownLeft, peak: heldLeft)
-                    channel(height: frame.size.height, rms: shownRight, peak: heldRight)
+            .frame(height: 13)
+
+            GeometryReader { geometry in
+                HStack(spacing: 4) {
+                    channel(level: shownLeft, peak: heldLeft)
+                    channel(level: shownRight, peak: heldRight)
+                    tickLabels(height: geometry.size.height)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            HStack(spacing: 3) {
-                Text("L")
-                Text("R")
+
+            HStack(spacing: 4) {
+                Text("L").frame(width: 16)
+                Text("R").frame(width: 16)
+                Spacer(minLength: 0)
             }
-            .font(.system(size: 7, weight: .medium, design: .monospaced))
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
             .foregroundStyle(.secondary)
         }
-        .frame(width: 19)
+        .frame(width: 97)
+        .padding(.vertical, 4)
         .help(estimated
-              ? "Estimated Master: decoded source audio after software gains. Not a hardware/device loopback or sample-synchronous mix."
-              : "Program: real decoded PCM levels with cue gain, before Master gain. Next is idle until taken live.")
-        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
-            let now = Date()
-            let targetL = SignalMeterMath.fraction(reading.rmsLeft)
-            let targetR = SignalMeterMath.fraction(reading.rmsRight)
-            shownLeft = max(targetL, shownLeft - 0.065)
-            shownRight = max(targetR, shownRight - 0.065)
+              ? "POST-FADER estimated Master: after cue and master gains; not a hardware loopback or sample-synchronous device measurement."
+              : "PRE-FADER stereo source PCM before the slide cue fader. Green = RMS, white line = recent peak, red = possible clipping.")
+        // The PCM taps poll at 20 Hz, but this independent 60 Hz display clock
+        // interpolates between readings for fluid, frame-rate-independent motion.
+        .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { now in
+            let elapsed = previousTick == .distantPast ? 1.0 / 60.0
+                : max(0.001, min(0.1, now.timeIntervalSince(previousTick)))
+            previousTick = now
+            shownLeft = MeterBallistics.follow(current: shownLeft,
+                target: SignalMeterMath.fraction(reading.rmsLeft), elapsed: elapsed)
+            shownRight = MeterBallistics.follow(current: shownRight,
+                target: SignalMeterMath.fraction(reading.rmsRight), elapsed: elapsed)
             let peakL = SignalMeterMath.fraction(reading.peakLeft)
             let peakR = SignalMeterMath.fraction(reading.peakRight)
-            if peakL >= heldLeft { heldLeft = peakL; heldLeftUntil = now.addingTimeInterval(1.2) }
-            else if now > heldLeftUntil { heldLeft = max(peakL, heldLeft - 0.045) }
-            if peakR >= heldRight { heldRight = peakR; heldRightUntil = now.addingTimeInterval(1.2) }
-            else if now > heldRightUntil { heldRight = max(peakR, heldRight - 0.045) }
+            if peakL >= heldLeft && peakL > 0.0001 {
+                heldLeft = peakL
+                heldLeftUntil = now.addingTimeInterval(1.2)
+            } else if now > heldLeftUntil {
+                heldLeft = MeterBallistics.follow(current: heldLeft, target: peakL,
+                    elapsed: elapsed, release: 0.40)
+            }
+            if peakR >= heldRight && peakR > 0.0001 {
+                heldRight = peakR
+                heldRightUntil = now.addingTimeInterval(1.2)
+            } else if now > heldRightUntil {
+                heldRight = MeterBallistics.follow(current: heldRight, target: peakR,
+                    elapsed: elapsed, release: 0.40)
+            }
             if reading.peakLeft >= 0.999 || reading.peakRight >= 0.999 {
-                clipUntil = now.addingTimeInterval(1.4)
+                clipUntil = now.addingTimeInterval(1.3)
             }
         }
     }
 
-    private func channel(height: CGFloat, rms: Double, peak: Double) -> some View {
-        ZStack(alignment: .bottom) {
-            Capsule().fill(Color.gray.opacity(0.24))
-            Capsule()
-                .fill(rms >= 0.91 ? Color.red : (rms >= 0.74 ? Color.yellow : Color.green))
-                .frame(height: max(0, height * CGFloat(min(1, rms))))
-            Rectangle()
-                .fill(peak > 0.92 ? Color.red : Color.white)
-                .frame(height: 2)
-                .offset(y: -(max(0, height - 2) * CGFloat(min(1, peak))))
-                .opacity(peak > 0.001 ? 1 : 0)
+    @ViewBuilder
+    private func channel(level: Double, peak: Double) -> some View {
+        GeometryReader { area in
+            let height = max(2, area.size.height)
+            let clamped = min(1, max(0, level))
+            ZStack(alignment: .bottom) {
+                Capsule()
+                    .fill(Color.gray.opacity(0.23))
+                if clamped > 0.001 {
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [.green.opacity(0.7),
+                                     clamped > 0.90 ? .red : (clamped > 0.78 ? .yellow : .green)],
+                            startPoint: .bottom, endPoint: .top))
+                        .frame(height: max(2, height * CGFloat(clamped)))
+                }
+                if peak > 0.001 {
+                    Rectangle()
+                        .fill(peak >= 0.96 ? Color.red : Color.white)
+                        .frame(height: 2)
+                        .position(x: area.size.width / 2,
+                                  y: CGFloat(MeterBallistics.peakPosition(
+                                    height: Double(height), fraction: peak)))
+                }
+            }
+            .frame(width: 16, height: height)
+            .clipped()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
+        .frame(width: 16)
+    }
+
+    private func tickLabels(height: CGFloat) -> some View {
+        GeometryReader { area in
+            ForEach([-48, -24, -12, -6, 0], id: \.self) { value in
+                HStack(spacing: 2) {
+                    Rectangle().fill(Color.secondary.opacity(0.5))
+                        .frame(width: 4, height: 1)
+                    Text("\(value)")
+                        .font(.system(size: 8, weight: .regular, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .position(x: 19,
+                          y: min(height - 7, max(7,
+                              height * CGFloat(1 - SignalMeterMath.fraction(
+                                  pow(10.0, Double(value) / 20.0))))))
+            }
+        }
+        .frame(width: 46)
     }
 }
 
@@ -1510,14 +1567,25 @@ private struct VerticalMixerFader: View {
 
     var body: some View {
         VStack(spacing: 5) {
-            Text(title).font(.system(size: 10, weight: .semibold))
-                .lineLimit(2).multilineTextAlignment(.center)
-                .frame(height: 27, alignment: .center)
-                .help(title)
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                Text(estimatedMeter ? "Post" : "Pre")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundStyle(estimatedMeter ? Color.cyan : Color.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(estimatedMeter ? Color.cyan.opacity(0.13) : Color.gray.opacity(0.15),
+                                in: Capsule())
+            }
+            .frame(height: 27, alignment: .center)
+            .help(estimatedMeter ? "Master meter: post-fader mix estimate" : "Slide signal before its cue fader")
             Text("\(Int((gain * 100).rounded()))%")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.secondary)
-            HStack(spacing: 3) {
+            HStack(spacing: 5) {
                 StereoAudioMeter(reading: meter, estimated: estimatedMeter)
                 GeometryReader { geometry in
                 let usableHeight = max(1, geometry.size.height - 15)

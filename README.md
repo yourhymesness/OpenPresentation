@@ -1,3 +1,7 @@
+# OpenPresentation v0.4.4 — Smooth Audio Meters and Muted Startup
+
+The mixer now uses 60 Hz smooth ballistics, clearly marked **Pre** cue meters and **Post** Master levels, stereo L/R, 0 to -48 dBFS scale, white peak-hold markers aligned to the meter, and a readable CLIP warning. Master remains an estimated sum, not an audio-device loopback. Video and audio players now apply mute/zero volume before playback resumes to prevent a first-frame sound leak.
+
 # OpenPresentation v0.4.3 Alpha — Live Audio Meters
 
 The Program fader now shows live decoded PCM stereo meters, and the Master fader shows an estimated combined stereo level after the master gain. The Next cue remains idle until it is actually playing. Bars represent RMS audio level, with a white peak-hold line and a red potential-clipping warning. These are **signal-derived meters, not output-device loopback**.

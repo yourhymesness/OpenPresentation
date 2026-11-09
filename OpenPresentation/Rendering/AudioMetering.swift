@@ -244,10 +244,11 @@ final class LiveAudioMeters: ObservableObject {
                     : 1
                 // Cue meters stay PRE-fader, even when its fader is at zero.
                 // Master is POST the cue and master faders.
-                let preFader = source.preFaderGain * envelope
-                beforeMaster.append(MeterSourceContribution(signal: signal, gain: preFader))
-                atMaster.append(MeterSourceContribution(signal: signal,
-                                                        gain: preFader * source.faderGain * masterGain))
+                let gains = SignalMeterMath.gainStages(
+                    preFader: source.preFaderGain, fader: source.faderGain,
+                    master: masterGain, envelope: envelope)
+                beforeMaster.append(MeterSourceContribution(signal: signal, gain: gains.pre))
+                atMaster.append(MeterSourceContribution(signal: signal, gain: gains.post))
             }
         }
         for id in staleIDs { sources.removeValue(forKey: id) }

@@ -36,6 +36,13 @@ enum MeterBallistics {
 }
 
 enum SignalMeterMath {
+    static func gainStages(preFader: Double, fader: Double, master: Double,
+                           envelope: Double) -> (pre: Double, post: Double) {
+        let pre = max(0, preFader) * max(0, envelope)
+        let post = pre * max(0, fader) * max(0, master)
+        return (pre, post)
+    }
+
     static func decibels(_ amplitude: Double) -> Double {
         guard amplitude.isFinite, amplitude > 0 else { return -.infinity }
         return 20 * log10(amplitude)
