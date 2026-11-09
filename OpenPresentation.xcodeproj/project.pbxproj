@@ -24,6 +24,8 @@
 		E913ABCD0000000000000001 /* AnimatedGIFImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E913ABCD0000000000000002 /* AnimatedGIFImage.swift */; };
 		E913ABCD0000000000000003 /* AudioPlaybackSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = E913ABCD0000000000000004 /* AudioPlaybackSurface.swift */; };
 		E913ABCD0000000000000005 /* MediaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E913ABCD0000000000000006 /* MediaImporter.swift */; };
+        F042A1111111111111111111 /* RecoverySnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F042B1111111111111111111 /* RecoverySnapshotStore.swift */; };
+        F042A2222222222222222222 /* RecoveryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F042B2222222222222222222 /* RecoveryCoordinator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +50,8 @@
 		E913ABCD0000000000000002 /* AnimatedGIFImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedGIFImage.swift; sourceTree = "<group>"; };
 		E913ABCD0000000000000004 /* AudioPlaybackSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackSurface.swift; sourceTree = "<group>"; };
 		E913ABCD0000000000000006 /* MediaImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImporter.swift; sourceTree = "<group>"; };
+        F042B1111111111111111111 /* RecoverySnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySnapshotStore.swift; sourceTree = "<group>"; };
+        F042B2222222222222222222 /* RecoveryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryCoordinator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -126,6 +130,8 @@
 			children = (
 				7DA163FD223104940861D8EA /* ProjectStore.swift */,
 				70B021000000000000000002 /* ShowFileActions.swift */,
+                F042B1111111111111111111 /* RecoverySnapshotStore.swift */,
+                F042B2222222222222222222 /* RecoveryCoordinator.swift */,
 			);
 			path = Storage;
 			sourceTree = "<group>";
@@ -205,6 +211,8 @@
 				E913ABCD0000000000000001 /* AnimatedGIFImage.swift in Sources */,
 				01AAA51FA7AD1F5A43570220 /* ProjectStore.swift in Sources */,
 				70B021000000000000000001 /* ShowFileActions.swift in Sources */,
+                F042A1111111111111111111 /* RecoverySnapshotStore.swift in Sources */,
+                F042A2222222222222222222 /* RecoveryCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

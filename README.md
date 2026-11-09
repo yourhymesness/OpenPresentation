@@ -1,4 +1,4 @@
-# OpenPresentation v0.4.1 Alpha — Zoom and Text Outlines
+# OpenPresentation v0.4.2 Alpha — Zoom and Text Outlines
 
 **Blind Editor zoom:** The bottom-left zoom dropdown offers **Zoom to Fill** and percentage presets. Scroll the mouse wheel over the canvas or pinch on a trackpad to zoom in/out. Shift+scroll or the scrollbars pan an enlarged slide. Zoom is a view-only setting; it never changes Program or the saved show.
 
@@ -12,7 +12,7 @@ Presets include 1920×1080, 1280×720, 3840×2160, portrait 1080×1920 / 2160×3
 
 The active canvas size is shown on the operator status bar. Program, Blind editor, thumbnail previews, audience output and windowed output use that ratio; **X/Y/W/H pixel fields use the saved canvas dimensions**. Transparent and inherited backgrounds, multimedia layers, font previews, and eight-point resize handles retain their existing behavior.
 
-**Document compatibility:** New saves use show format v6. Older v1–v5 shows load at **1920×1080** without changing normalized layer positions. There is no in-place Resize Existing Show command yet; that is targeted for v0.4.1. Save a separate copy before experimenting with older show files. An existing v5 reader will not recognize v6 files.
+**Document compatibility:** New saves use show format v6. Older v1–v5 shows load at **1920×1080** without changing normalized layer positions. There is no in-place Resize Existing Show command yet; that is targeted for v0.4.2. Save a separate copy before experimenting with older show files. An existing v5 reader will not recognize v6 files.
 
 **Test this build:** Create Full HD, portrait, square and ultrawide shows. Add text, shapes, pictures/video, and check editor geometry, thumbnail ratios, external displays, scaling Fit/Fill, Save/Open and the size readout. Try opening an existing show and confirm the ratio remains 16:9. This alpha is provided **AS IS, WITHOUT WARRANTY**; the automated build validates compilation, but it has not been qualified for show-critical use.
 
@@ -80,3 +80,11 @@ Website: [hitechproductions.com](https://www.hitechproductions.com/) · Feature 
 ## License
 
 [Apache License 2.0](LICENSE). OpenPresentation is provided **AS IS**, without warranties or guarantees. See the license for details.
+
+### Autosave and recovery (v0.4.2 alpha)
+
+OpenPresentation keeps **local emergency recovery snapshots every five seconds when the authored show has unsaved changes**; it also checks when the app loses focus. It keeps the newest snapshot and two backups, stored under your macOS user's **Application Support/OpenPresentation/Recovery** folder, **not** in your original `.json` show or its `.media` companion directory. A successful manual Save clears the active recovery snapshots. Normal Quit (including choosing Don't Save) discards the active draft; an unexpected crash or Force Quit does not.
+
+On reopening after an interruption, choose **Recover** to restore the newest available unsaved show, **Later** to leave the recovery data intact, or **Discard Recovery** to delete that draft. Recovered work opens as **unsaved** and does **not** automatically go to the audience output. Review the recovery and choose Save or Save As yourself. Media files are **referenced by their original paths** rather than duplicated, so keep source media available. Recovery is not a substitute for real backups.
+
+**Safe test:** create a disposable test show, add a slide and edit it, look for the “Recovery saved” status in the operator footer (allow at least 10 seconds), then use **Apple menu → Force Quit → OpenPresentation → Force Quit**. Reopen OpenPresentation and select Recover. Verify changes, and save to a test `.json` file. Don't do this while a show is live; Force Quit will immediately interrupt all output.

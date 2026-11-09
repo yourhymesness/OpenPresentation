@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 @MainActor
 final class ShowFileActions: ObservableObject {
     @Published var errorMessage: String?
+    /// Wired by the owning application session; avoids persisting dismissed work.
+    var onSuccessfulSave: (() -> Void)?
+    var onWillReplaceShow: (() -> Void)?
     @Published private(set) var recentShows: [URL] = []
     private let recentKey = "OpenPresentation.recentShows.v1"
     private let recentLimit = 12
@@ -30,6 +33,7 @@ final class ShowFileActions: ObservableObject {
         guard confirmMayReplaceCurrentShow(show) else { return }
         do {
             let document = try ProjectStore.load(from: url)
+            onWillReplaceShow?()
             show.load(document, from: url)
             noteRecent(url)
             show.statusMessage = "Opened \(url.lastPathComponent)."
@@ -96,6 +100,7 @@ final class ShowFileActions: ObservableObject {
             document.title = savedTitle
             try ProjectStore.save(document, to: url)
             show.didSaveShow(to: url, withTitle: savedTitle)
+            onSuccessfulSave?()
             noteRecent(url)
             show.statusMessage = "Saved \(savedTitle) to \(url.lastPathComponent)."
             return true

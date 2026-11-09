@@ -1,3 +1,12 @@
+# v0.4.2-alpha — Autosave and Crash Recovery
+
+- New Foundation-based `RecoverySnapshotStore`: every five seconds while an edited show is dirty, store a separate atomic recovery JSON with two older generations. The original show file is never overwritten by autosave.
+- New `RecoveryCoordinator`: prompts at startup to Recover, keep for Later, or discard the latest unsaved work. Recovery loads off-air and is deliberately marked unsaved until the user chooses Save/Save As.
+- Show identity follows each new/opened document, including untitled shows; a deliberate Save, discard/replacement, or normal Quit clears only the active document's emergency drafts. Force Quit/crash bypasses that cleanup.
+- The operator footer reports successful recovery saves and failures. Source media remains referenced at its original file paths; large media files are not copied every autosave.
+- Added Foundation-only tests for rotation, corruption fallback, original-file integrity, distinct unsaved-show identities, and recovery cleanup. macOS CI builds the full app plus these regression tests.
+- To simulate failure **only with a disposable test show**, wait for “Recovery saved” then Force Quit via macOS. Never test with an active event or client show on-air.
+
 # v0.4.1 — Blind Editor Zoom and Text Outlines
 
 - Added a bottom-left **Zoom** menu to the Blind layer editor with Zoom to Fill and 10%, 25%, 50%, 75%, 100%, 125%, 150%, 200%, and 400% presets. Zoom to Fill is the default and adjusts to the available editor area.

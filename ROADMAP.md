@@ -1,10 +1,10 @@
-## v0.4.1 — Blind Editor Zoom and Text Outlines (Implemented)
+## v0.4.2 — Blind Editor Zoom and Text Outlines (Implemented)
 
 - Editor-only wheel/pinch/preset/Zoom to Fill; scroll an enlarged slide.
 - Text outline color and pixel thickness, rendered in both Preview and Program.
 - Preserve optional metadata compatibility with older shows.
 
-## v0.4.1 — Planned existing-show canvas resizing
+## v0.4.2 — Planned existing-show canvas resizing
 
 - Add a deliberate **Change Show Canvas** command with a visible preview, confirmation and Undo.
 - Offer proportional normalized scaling (default), pixel-preserving translation and center anchoring. Existing v5 shows must continue to load at 1920×1080.

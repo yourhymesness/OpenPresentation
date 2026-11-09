@@ -10,6 +10,14 @@ private final class OpenPresentationSession {
     let show = ShowController()
     let output = OutputManager()
     let fileActions = ShowFileActions()
+    let recovery: RecoveryCoordinator
+
+    init() {
+        let recovery = RecoveryCoordinator(show: show)
+        self.recovery = recovery
+        fileActions.onSuccessfulSave = { [weak recovery] in recovery?.didSave() }
+        fileActions.onWillReplaceShow = { [weak recovery] in recovery?.willReplaceShow() }
+    }
 }
 
 @main
@@ -22,18 +30,27 @@ struct OpenPresentationApp: App {
 
     var body: some Scene {
         WindowGroup("OpenPresentation") {
-            OperatorView(show: session.show, output: session.output, fileActions: session.fileActions)
+            OperatorView(show: session.show, output: session.output, fileActions: session.fileActions,
+                         recovery: session.recovery)
                 .frame(minWidth: 1060, minHeight: 730)
                 .onAppear {
                     terminationDelegate.show = session.show
                     terminationDelegate.fileActions = session.fileActions
+                    terminationDelegate.recovery = session.recovery
                     // Install a stable native Edit/View menu once the operator
                     // window has appeared. Menu actions read state on demand;
                     // Program frame updates never rebuild these NSMenus.
                     OpenPresentationNativeMenus.shared.attach(show: session.show, output: session.output)
                     DispatchQueue.main.async {
                         OpenPresentationNativeMenus.shared.installIfNeeded()
+                        session.recovery.startIfNeeded()
                     }
+                }
+                .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+                    session.recovery.autosaveIfNeeded()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
+                    session.recovery.autosaveIfNeeded()
                 }
                 .sheet(isPresented: $presentingHelp) {
                     OpenPresentationHelpView()
@@ -43,6 +60,7 @@ struct OpenPresentationApp: App {
                         // Do not destroy the existing show if saving is
                         // cancelled. Confirm only after the new setup is ready.
                         guard session.fileActions.confirmMayReplaceCurrentShow(session.show) else { return }
+                        session.recovery.willReplaceShow()
                         session.show.newBlankShow(canvasSize: canvas, title: name)
                         presentingNewShow = false
                     }, onCancel: { presentingNewShow = false })
@@ -686,6 +704,7 @@ private struct OpenPresentationHelpView: View {
 final class OpenPresentationTerminationDelegate: NSObject, NSApplicationDelegate {
     weak var show: ShowController?
     weak var fileActions: ShowFileActions?
+    weak var recovery: RecoveryCoordinator?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
@@ -696,7 +715,10 @@ final class OpenPresentationTerminationDelegate: NSObject, NSApplicationDelegate
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let show, show.hasUnsavedChanges else { return .terminateNow }
+        guard let show, show.hasUnsavedChanges else {
+            recovery?.willTerminateNormally()
+            return .terminateNow
+        }
         let alert = NSAlert()
         alert.messageText = "Save changes before quitting OpenPresentation?"
         alert.informativeText = "Unsaved edits to \(show.title) will be lost if you don't save."
@@ -706,8 +728,11 @@ final class OpenPresentationTerminationDelegate: NSObject, NSApplicationDelegate
         alert.addButton(withTitle: "Don't Save")
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return fileActions?.saveShow(from: show) == true ? .terminateNow : .terminateCancel
+            guard fileActions?.saveShow(from: show) == true else { return .terminateCancel }
+            recovery?.willTerminateNormally()
+            return .terminateNow
         case .alertThirdButtonReturn:
+            recovery?.willTerminateNormally()
             return .terminateNow
         default:
             return .terminateCancel

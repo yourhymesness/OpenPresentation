@@ -24,6 +24,7 @@ struct OperatorView: View {
     @ObservedObject var show: ShowController
     @ObservedObject var output: OutputManager
     @ObservedObject var fileActions: ShowFileActions
+    @ObservedObject var recovery: RecoveryCoordinator
     @AppStorage("liveAppearance") private var liveAppearance = LiveAppearance.system.rawValue
     @AppStorage("liveSlideViewMode") private var liveSlideViewMode = "icons"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -85,6 +86,11 @@ struct OperatorView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
+                Label(recovery.statusText, systemImage: "externaldrive.badge.timemachine")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("Separate emergency recovery snapshots are saved locally; this does not overwrite the original show.")
                 if isBlind {
                     Label("BLIND", systemImage: "eye.slash.fill")
                         .font(.caption2.weight(.bold))

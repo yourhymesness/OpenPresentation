@@ -76,6 +76,8 @@ final class LiveAudioMix: ObservableObject {
 @MainActor
 final class ShowController: ObservableObject {
     @Published var title: String = "Untitled Show"
+    /// Distinguishes recovery drafts even for shows not yet saved to a URL.
+    @Published private(set) var documentSessionID = UUID()
     @Published private(set) var canvasSize: ShowCanvasSize = .fullHD
     @Published private(set) var openedShowURL: URL?
 
@@ -584,6 +586,7 @@ final class ShowController: ObservableObject {
             ? (url?.deletingPathExtension().lastPathComponent ?? "Untitled Show")
             : storedTitle
         openedShowURL = url
+        documentSessionID = UUID()
         slides = show.slides
         canvasSize = show.canvasSize
         collections = show.collections
@@ -604,6 +607,15 @@ final class ShowController: ObservableObject {
         isCleared = false
         statusMessage = "Show loaded. Program idle; operator mode preserved."
         recordSavedBaseline()
+    }
+
+    /// Restore a draft without declaring it saved. Undo/Redo history starts
+    /// fresh; the recovered slide library remains off-air until explicitly taken.
+    func restoreRecoveredShow(_ snapshot: RecoverySnapshot) {
+        load(snapshot.show, from: snapshot.originalURL)
+        documentSessionID = snapshot.documentID
+        savedBaseline = nil
+        statusMessage = "Recovered unsaved changes. Review them and Save or Save As."
     }
 
     // Compare encoded show content, not window/mode/transport state. Changes in
@@ -628,6 +640,7 @@ final class ShowController: ObservableObject {
         self.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Show" : title
         self.canvasSize = canvasSize
         openedShowURL = nil
+        documentSessionID = UUID()
         slides = []
         collections = []
         selectedCollectionID = nil

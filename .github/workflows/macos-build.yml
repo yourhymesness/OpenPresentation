@@ -51,3 +51,9 @@ jobs:
             OpenPresentation/Core/CanvasZoom.swift \
             Tests/CanvasZoomAndTextOutline.swift -o /tmp/zoom-outline
           /tmp/zoom-outline
+      - name: Test autosave snapshots and crash recovery
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            OpenPresentation/Storage/RecoverySnapshotStore.swift \
+            Tests/AutosaveCrashRecovery.swift -o /tmp/autosave-recovery
+          /tmp/autosave-recovery
