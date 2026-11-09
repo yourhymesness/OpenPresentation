@@ -9,6 +9,7 @@ struct SlideObjectCanvas: View {
     @Binding var selectedLayerID: UUID?
     @Binding var selectedLayerIDs: Set<UUID>
     var snapToGuides: Bool
+    var canvasSize: ShowCanvasSize = .fullHD
     // Temporary font candidate; used ONLY for the visual canvas. Never writes
     // through the slide binding and cannot affect the live Program snapshot.
     var previewFontLayerID: UUID? = nil
@@ -28,6 +29,7 @@ struct SlideObjectCanvas: View {
             ZStack(alignment: .topLeading) {
                 SlideCanvas(
                     slide: slide.previewingFont(previewFontFamily, onLayer: previewFontLayerID),
+                    canvasSize: canvasSize,
                     showTransparencyCheckerboard: true
                 )
                 .allowsHitTesting(false)
@@ -146,7 +148,7 @@ struct SlideObjectCanvas: View {
                             }
                         ))
                         .font(.custom(layer.fontFamily,
-                                      size: max(12, CGFloat(layer.fontSize) * geometry.size.width / 1920.0)))
+                                      size: max(12, CGFloat(layer.fontSize) * geometry.size.width / CGFloat(canvasSize.width))))
                         .foregroundStyle(Color(hex: layer.textColorHex))
                         .scrollContentBackground(.hidden)
                         .focused($inlineEditorFocused)
@@ -169,7 +171,7 @@ struct SlideObjectCanvas: View {
             // element must never change the drag's coordinate reference.
             .coordinateSpace(name: "slideCanvas")
         }
-        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+        .aspectRatio(CGFloat(canvasSize.ratio), contentMode: .fit)
         .onChange(of: selectedLayerID) { _, newSelection in
             if editingLayerID != newSelection { finishEditing() }
         }

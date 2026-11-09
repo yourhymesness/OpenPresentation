@@ -17,7 +17,7 @@ import Foundation
         let saved = root.appendingPathComponent("Test.json")
         try ProjectStore.save(PresentationShow(title: "Media Test", slides: [slide]), to: saved)
         let show = try ProjectStore.load(from: saved)
-        assert(show.formatVersion == 5)
+        assert(show.formatVersion == 6)
         let loaded = show.slides[0].layers[1]
         assert(loaded.kind == .audio && loaded.audioLoops == true)
         assert(loaded.resolvedAudioVolume == 0.33)

@@ -1,3 +1,11 @@
+## v0.4.1 — Planned existing-show canvas resizing
+
+- Add a deliberate **Change Show Canvas** command with a visible preview, confirmation and Undo.
+- Offer proportional normalized scaling (default), pixel-preserving translation and center anchoring. Existing v5 shows must continue to load at 1920×1080.
+- Expand multiscreen visual regression testing for portrait and ultrawide video, animated GIF, transparency and fullscreen output cropping.
+
+**v0.4.0 implemented:** source canvas presets/custom dimensions, New Show chooser, v6 save/load, legacy default, renderer/editor/output/thumbnail aspect ratio and pixel field migration.
+
 ## Implemented in v0.3.2
 
 - Media frames lock proportions by default, with Option (⌥) drag for independent X/Y stretching.

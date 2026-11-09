@@ -56,7 +56,8 @@ struct SlideCanvas: View {
     var isBlackout: Bool = false
     var isCleared: Bool = false
     var scaleMode: OutputScaleMode = .fit
-    var constrainTo16x9: Bool = true
+    var constrainToCanvas: Bool = true
+    var canvasSize: ShowCanvasSize = .fullHD
     /// Previews and full Program transition frames are flattened against the
     /// audience's black output. A slide's underlying alpha is not modified.
     /// Shared-background video overlays deliberately leave this false.
@@ -85,8 +86,8 @@ struct SlideCanvas: View {
     var videoSessions: [String: UUID] = [:]
 
     @ViewBuilder var body: some View {
-        if constrainTo16x9 {
-            canvas.aspectRatio(16.0 / 9.0, contentMode: .fit)
+        if constrainToCanvas {
+            canvas.aspectRatio(CGFloat(canvasSize.ratio), contentMode: .fit)
         } else {
             canvas
         }
@@ -94,13 +95,15 @@ struct SlideCanvas: View {
 
     private var canvas: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width.isFinite ? min(max(geometry.size.width, 1), 8192) : 1920.0
-            let height = geometry.size.height.isFinite ? min(max(geometry.size.height, 1), 8192) : 1080.0
-            let fitScale = min(width / 1920.0, height / 1080.0)
-            let fillScale = max(width / 1920.0, height / 1080.0)
+            let sourceW = Double(canvasSize.width)
+            let sourceH = Double(canvasSize.height)
+            let width = geometry.size.width.isFinite ? min(max(geometry.size.width, 1), 8192) : sourceW
+            let height = geometry.size.height.isFinite ? min(max(geometry.size.height, 1), 8192) : sourceH
+            let fitScale = min(width / sourceW, height / sourceH)
+            let fillScale = max(width / sourceW, height / sourceH)
             let scale = scaleMode == .fit ? fitScale : fillScale
-            let canvasWidth = 1920.0 * scale
-            let canvasHeight = 1080.0 * scale
+            let canvasWidth = sourceW * scale
+            let canvasHeight = sourceH * scale
 
             ZStack {
                 if showTransparencyCheckerboard && (slide?.isVisuallyTransparentBackground ?? false) {
@@ -342,10 +345,10 @@ private struct SlideVectorShape: Shape {
 struct ProgramCanvas: View {
     @ObservedObject var controller: ShowController
     var scaleMode: OutputScaleMode = .fit
-    var constrainTo16x9: Bool = true
+    var constrainToCanvas: Bool = true
     var isAudienceOutput: Bool = false
     var outputScope: String = "program"
-
+    private var showCanvasSize: ShowCanvasSize { controller.canvasSize }
 
     private func audioGains(for transition: ProgramTransition, at date: Date) -> (old: Double, new: Double) {
         let progress = transition.progress(at: date)
@@ -385,7 +388,8 @@ struct ProgramCanvas: View {
                     if sharedBackground != nil {
                         SlideCanvas(slide: transition.to.slide,
                                     scaleMode: scaleMode,
-                                    constrainTo16x9: constrainTo16x9,
+                                    constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                     // Shared video is already drawn under this overlay.
                                     playsVideo: true,
                                     allowsVideoAudio: isAudienceOutput,
@@ -405,7 +409,8 @@ struct ProgramCanvas: View {
                                     isBlackout: transition.from.isBlackout,
                                     isCleared: transition.from.isCleared,
                                     scaleMode: scaleMode,
-                                    constrainTo16x9: constrainTo16x9,
+                                    constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                     playsVideo: true,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
@@ -417,7 +422,8 @@ struct ProgramCanvas: View {
                                     isBlackout: transition.to.isBlackout,
                                     isCleared: transition.to.isCleared,
                                     scaleMode: scaleMode,
-                                    constrainTo16x9: constrainTo16x9,
+                                    constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                     playsVideo: true,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
@@ -430,7 +436,8 @@ struct ProgramCanvas: View {
                                     isBlackout: transition.from.isBlackout,
                                     isCleared: transition.from.isCleared,
                                     scaleMode: scaleMode,
-                                    constrainTo16x9: constrainTo16x9,
+                                    constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                     playsVideo: true,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
@@ -443,7 +450,8 @@ struct ProgramCanvas: View {
                                     isBlackout: transition.to.isBlackout,
                                     isCleared: transition.to.isCleared,
                                     scaleMode: scaleMode,
-                                    constrainTo16x9: constrainTo16x9,
+                                    constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                     playsVideo: true,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
@@ -457,7 +465,8 @@ struct ProgramCanvas: View {
                                 isBlackout: transition.from.isBlackout,
                                 isCleared: transition.from.isCleared,
                                 scaleMode: scaleMode,
-                                constrainTo16x9: constrainTo16x9,
+                                constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: true,
                                 allowsVideoAudio: isAudienceOutput,
@@ -471,7 +480,8 @@ struct ProgramCanvas: View {
                                 isBlackout: transition.to.isBlackout,
                                 isCleared: transition.to.isCleared,
                                 scaleMode: scaleMode,
-                                constrainTo16x9: constrainTo16x9,
+                                constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: true,
                                 allowsVideoAudio: isAudienceOutput,
@@ -487,7 +497,8 @@ struct ProgramCanvas: View {
                                 isBlackout: controller.isBlackout,
                                 isCleared: controller.isCleared,
                                 scaleMode: scaleMode,
-                                constrainTo16x9: constrainTo16x9,
+                                constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: true,
                                 playsVideo: true,
                                 allowsVideoAudio: isAudienceOutput,

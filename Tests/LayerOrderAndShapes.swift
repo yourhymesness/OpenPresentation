@@ -35,7 +35,7 @@ import Foundation
         try ProjectStore.save(show, to: path)
         let restored = try ProjectStore.load(from: path)
         assert(restored.slides == show.slides)
-        assert(restored.formatVersion == 5)
+        assert(restored.formatVersion == 6)
         let kinds = restored.slides[0].layers.compactMap(\.shapeKind)
         assert(kinds == SlideShapeKind.allCases)
         print("PASS: layer ordering, drag reorder, locked layers, vector object JSON round-trip and v5 show format")

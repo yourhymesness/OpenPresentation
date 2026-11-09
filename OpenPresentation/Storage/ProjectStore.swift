@@ -30,7 +30,7 @@ enum ProjectStore {
         let fm = FileManager.default
         let folder = mediaFolder(for: url)
         var portable = show
-        portable.formatVersion = 5
+        portable.formatVersion = 6
         var copies: [String: String] = [:]
 
         func packaged(_ path: String?) throws -> String? {
@@ -70,7 +70,7 @@ enum ProjectStore {
     static func load(from url: URL) throws -> PresentationShow {
         let data = try Data(contentsOf: url)
         var show = try JSONDecoder().decode(PresentationShow.self, from: data)
-        guard (1...5).contains(show.formatVersion) else { throw StoreError.unsupportedVersion(show.formatVersion) }
+        guard (1...6).contains(show.formatVersion) else { throw StoreError.unsupportedVersion(show.formatVersion) }
         let folder = mediaFolder(for: url)
 
         func resolved(_ path: String?) throws -> String? {

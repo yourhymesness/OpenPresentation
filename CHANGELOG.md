@@ -1,3 +1,14 @@
+# v0.4.0-alpha — Custom Presentation Canvases
+
+- New Show (⌘N) opens a canvas setup sheet with HD/Full HD/4K, 9:16 portrait, square and ultrawide/LED presets, plus editable custom width and height (64–8192 pixels).
+- Source canvas size and reduced aspect-ratio label are displayed in the operator status area.
+- Presentation show format **v6** persists `canvasWidth` and `canvasHeight`. Older show formats 1–5 load at 1920×1080 without altering their normalized layer geometry; v6 saves preserve the new dimensions.
+- Slide renderer, Program monitor, Blind layer editor, library thumbnails, output fit/fill and windowed audience output now use the authored canvas ratio rather than a fixed 16:9 reference.
+- The layer X/Y/W/H inspector and the native-size media scaling commands are measured against the selected canvas. Circle/Square/Equilateral Triangle presets keep correct pixel geometry across aspect ratios.
+- Canceling New Show leaves the existing document unchanged; Create checks for unsaved work before replacing it.
+- Added `CanvasSizePersistence.swift` tests and a macOS GitHub Actions step for migration, presets and pixel geometry. No change to media output, audio session or transition algorithms beyond the canvas geometry inputs.
+- **Planned, not in v0.4.0:** changing the dimensions of an existing show and applying scale/anchor migration. Use File → New Show to select a canvas size, then import/copy slides as appropriate.
+
 # v0.3.2 — Media stretching and precise shape presets
 
 - Images, animated GIFs, and videos now maintain resize proportions by default; hold Option (⌥) during any of the eight resize-handle drags to temporarily allow free X/Y stretching. Option-drag also selects Stretch media pixel mapping so the content visibly distorts rather than letterboxing.

@@ -18,6 +18,7 @@ struct OpenPresentationApp: App {
     @NSApplicationDelegateAdaptor(OpenPresentationTerminationDelegate.self) private var terminationDelegate
     @State private var session = OpenPresentationSession()
     @State private var presentingHelp = false
+    @State private var presentingNewShow = false
 
     var body: some Scene {
         WindowGroup("OpenPresentation") {
@@ -37,14 +38,21 @@ struct OpenPresentationApp: App {
                 .sheet(isPresented: $presentingHelp) {
                     OpenPresentationHelpView()
                 }
+                .sheet(isPresented: $presentingNewShow) {
+                    NewShowCanvasSetup(onCreate: { name, canvas in
+                        // Do not destroy the existing show if saving is
+                        // cancelled. Confirm only after the new setup is ready.
+                        guard session.fileActions.confirmMayReplaceCurrentShow(session.show) else { return }
+                        session.show.newBlankShow(canvasSize: canvas, title: name)
+                        presentingNewShow = false
+                    }, onCancel: { presentingNewShow = false })
+                }
         }
         .commands {
             // Places Open/Save in the standard macOS File menu, not in a
             // separate application toolbar or custom menu.
             CommandGroup(replacing: .newItem) {
-                Button("New Blank Show") {
-                    if session.fileActions.confirmMayReplaceCurrentShow(session.show) { session.show.newBlankShow() }
-                }
+                Button("New Show…") { presentingNewShow = true }
                     .keyboardShortcut("n", modifiers: .command)
                 Divider()
                 Button("Open Show…") { session.fileActions.openShow(into: session.show) }
@@ -100,6 +108,114 @@ struct OpenPresentationApp: App {
         Settings {
             AppSettingsView(output: session.output)
         }
+    }
+}
+
+/// New-show dimensions are chosen before replacing the active document.
+/// The editor, Program, and saved show all use the same canvas selection.
+@MainActor
+private struct NewShowCanvasSetup: View {
+    let onCreate: (String, ShowCanvasSize) -> Void
+    let onCancel: () -> Void
+    @State private var title = "Untitled Show"
+    @State private var preset: ShowCanvasPreset = .fullHD
+    @State private var pixelWidth = 1920
+    @State private var pixelHeight = 1080
+
+    private var valid: Bool {
+        (ShowCanvasSize.minimum...ShowCanvasSize.maximum).contains(pixelWidth) &&
+        (ShowCanvasSize.minimum...ShowCanvasSize.maximum).contains(pixelHeight)
+    }
+    private var previewRatio: Double {
+        Double(max(1, pixelWidth)) / Double(max(1, pixelHeight))
+    }
+    private var previewWidth: CGFloat { min(240, 148 * previewRatio) }
+    private var previewHeight: CGFloat { previewWidth / previewRatio }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("New Presentation", systemImage: "rectangle.on.rectangle")
+                .font(.title3.bold())
+            Text("Choose the source canvas for this show. Preview, Program, and audience output will share its aspect ratio.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Show title", text: $title)
+                .textFieldStyle(.roundedBorder)
+            Picker("Canvas preset", selection: $preset) {
+                ForEach(ShowCanvasPreset.allCases) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+            .onChange(of: preset) { _, selected in
+                if let size = selected.size {
+                    pixelWidth = size.width
+                    pixelHeight = size.height
+                }
+            }
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Width (px)").font(.caption).foregroundStyle(.secondary)
+                    TextField("Width", value: Binding(
+                        get: { pixelWidth },
+                        set: { pixelWidth = $0; preset = .custom }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Canvas width in pixels")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Height (px)").font(.caption).foregroundStyle(.secondary)
+                    TextField("Height", value: Binding(
+                        get: { pixelHeight },
+                        set: { pixelHeight = $0; preset = .custom }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Canvas height in pixels")
+                }
+            }
+            if !valid {
+                Text("Each dimension must be 64–8192 pixels.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            VStack(spacing: 10) {
+                ZStack {
+                    Color.gray.opacity(0.11)
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color(red: 0.10, green: 0.16, blue: 0.28))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
+                        }
+                        .frame(width: previewWidth, height: min(previewHeight, 148))
+                }
+                .frame(height: 160)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                Text(valid ? ShowCanvasSize(width: pixelWidth, height: pixelHeight).sizeLabel +
+                     "  ·  " + ShowCanvasSize(width: pixelWidth, height: pixelHeight).ratioLabel
+                     : "Enter a valid canvas size")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Create Show") {
+                    guard valid else { return }
+                    onCreate(title, ShowCanvasSize(width: pixelWidth, height: pixelHeight))
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!valid)
+            }
+        }
+        .padding(22)
+        .frame(width: 490)
     }
 }
 
@@ -450,7 +566,7 @@ private struct OutputSettingsView: View {
                 }
             }
 
-            Text("Fit shows the whole 16:9 slide with letterboxing when needed. " +
+            Text("Fit shows the entire authored canvas with letterboxing when needed. " +
                  "Fill crops the slide to cover the selected display.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

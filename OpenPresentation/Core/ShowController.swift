@@ -76,6 +76,7 @@ final class LiveAudioMix: ObservableObject {
 @MainActor
 final class ShowController: ObservableObject {
     @Published var title: String = "Untitled Show"
+    @Published private(set) var canvasSize: ShowCanvasSize = .fullHD
     @Published private(set) var openedShowURL: URL?
 
     var openedShowFilename: String? { openedShowURL?.lastPathComponent }
@@ -559,7 +560,7 @@ final class ShowController: ObservableObject {
     }
 
     func currentShow() -> PresentationShow {
-        PresentationShow(title: title, slides: slides,
+        PresentationShow(title: title, slides: slides, canvasSize: canvasSize,
                          collections: collections, loopAutoAdvance: loopAutoAdvance,
                          globalTransitionSeconds: transitionDuration,
                          globalAutoAdvanceSeconds: globalAutoAdvanceSeconds)
@@ -584,6 +585,7 @@ final class ShowController: ObservableObject {
             : storedTitle
         openedShowURL = url
         slides = show.slides
+        canvasSize = show.canvasSize
         collections = show.collections
         loopAutoAdvance = show.loopAutoAdvance
         globalAutoAdvanceSeconds = show.globalAutoAdvanceSeconds
@@ -619,11 +621,12 @@ final class ShowController: ObservableObject {
     private func recordSavedBaseline() {
         savedBaseline = encodedShowData()
     }
-    func newBlankShow() {
+    func newBlankShow(canvasSize: ShowCanvasSize = .fullHD, title: String = "Untitled Show") {
         undoHistory.removeAll()
         redoHistory.removeAll()
         cancelAutoAdvance()
-        title = "Untitled Show"
+        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Show" : title
+        self.canvasSize = canvasSize
         openedShowURL = nil
         slides = []
         collections = []
@@ -640,7 +643,7 @@ final class ShowController: ObservableObject {
         globalAutoAdvanceSeconds = 10
         transitionDuration = 0.65
         if mode == .blind { captureBlindProgramBaseline() }
-        statusMessage = "Blank show ready. Add a slide to begin."
+        statusMessage = "Blank \(canvasSize.sizeLabel) show ready. Add a slide to begin."
         recordSavedBaseline()
     }
 

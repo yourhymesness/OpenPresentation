@@ -1,10 +1,14 @@
-# OpenPresentation v0.3.2 — Free Stretch and Shape Presets
+# OpenPresentation v0.4.0 Alpha — Custom Canvas Sizes
 
-Images/videos/GIFs maintain their rectangle's aspect ratio by default. Hold **⌥ Option while dragging any resize handle** to stretch X/Y independently; this activates **Media pixels: Stretch (distort)** for visual pixels (not merely the frame). The inspector exposes **Media pixels: Fit / Fill / Stretch** and the persistent **Lock ratio** toggle. Use Fit or Fill to restore normal pixel mapping. Audio playback is unaffected.
+OpenPresentation now supports configurable *authored* canvas dimensions instead of forcing every show to 1920×1080. Select **File → New Show… (⌘N)** and choose a preset or enter custom width and height (64–8192 px). The chooser previews the aspect ratio before you create the show.
 
-**Add Object** now includes **Square**, **Circle**, and **Equilateral Triangle**, all created at proper pixel proportions on the current 1920×1080 canvas. Changing an existing shape to one of these presets also normalizes its proportions. Regular Rectangle/Ellipse/Triangle remain freely resizable.
+Presets include 1920×1080, 1280×720, 3840×2160, portrait 1080×1920 / 2160×3840, square 1080×1080 / 2160×2160, and ultrawide/LED 2560×720 / 3072×768 / 3840×1080. You can also type any valid custom dimensions.
 
-**Testing:** Resize a picture/video using ordinary drag, Option-drag it into unusual proportions, switch Fit/Fill/Stretch, use Undo to restore, then add and transform each new shape. Verify existing shows still open. GitHub Actions builds and tests macOS source after push; native runtime still needs operator verification.
+The active canvas size is shown on the operator status bar. Program, Blind editor, thumbnail previews, audience output and windowed output use that ratio; **X/Y/W/H pixel fields use the saved canvas dimensions**. Transparent and inherited backgrounds, multimedia layers, font previews, and eight-point resize handles retain their existing behavior.
+
+**Document compatibility:** New saves use show format v6. Older v1–v5 shows load at **1920×1080** without changing normalized layer positions. There is no in-place Resize Existing Show command yet; that is targeted for v0.4.1. Save a separate copy before experimenting with older show files. An existing v5 reader will not recognize v6 files.
+
+**Test this build:** Create Full HD, portrait, square and ultrawide shows. Add text, shapes, pictures/video, and check editor geometry, thumbnail ratios, external displays, scaling Fit/Fill, Save/Open and the size readout. Try opening an existing show and confirm the ratio remains 16:9. This alpha is provided **AS IS, WITHOUT WARRANTY**; the automated build validates compilation, but it has not been qualified for show-critical use.
 
 ---
 
@@ -40,14 +44,14 @@ In Blind mode, select a text layer, open the **Font** control in the layer inspe
 
 - **Eight resize handles** (four corners, four edge midpoints) for visual layers; resize width and height independently.
 - Optional **Lock ratio** switch in layer attributes when an image/video should keep its visual frame aspect ratio.
-- Precise **X, Y, W and H** attributes in pixels on the current **1920×1080** presentation canvas (X/Y measure the layer's top-left corner).
+- Precise **X, Y, W and H** attributes in pixels on the active presentation canvas (X/Y measure the layer's top-left corner).
 - Existing Blind/Live workflow, media rendering and show-file format retained.
 
-Older v5 show documents remain compatible: the aspect-lock setting is optional. Starting in v0.3.2, image/video layers default to locked proportions when the field is absent, while older shape/text layers remain free-resize by default. **Variable project canvas sizes are planned**, not yet implemented. The v0.3.1 font hover browser previews in Blind only.
+Older v5 show documents remain compatible: the aspect-lock setting is optional. Starting in v0.3.2, image/video layers default to locked proportions when the field is absent, while older shape/text layers remain free-resize by default. **Variable project canvas sizes are available starting in v0.4.0.** The v0.3.1 font hover browser previews in Blind only.
 
 ## Limitations
 
-- The document canvas is currently fixed at 1920×1080 (16:9). Display scaling can fit other output screens, but that does **not** make the authored canvas variable.
+- Changing the canvas of an existing show is not yet supported. Set the canvas for new shows; older shows open at Full HD. Physical outputs use Fit/Fill against the chosen canvas.
 - Image/video media file references and the companion `.media` folder must be kept together when moving a show.
 - This release has **not** completed a full macOS Xcode build or performance qualification here; CI on GitHub is intended to catch integration failures, and device testing is required for UI behavior.
 - Layer geometry is clamped to the canvas. Overlapping or very small elements may need exact pixel entry rather than dragging.

@@ -15,7 +15,7 @@ struct CollectionsAndAutoplayMetadata {
         let saved = PresentationShow(title: "Event", slides: [first, second],
                                      collections: [preshow, showCollection], loopAutoAdvance: true)
         let read = try JSONDecoder().decode(PresentationShow.self, from: JSONEncoder().encode(saved))
-        precondition(read.formatVersion == 5)
+        precondition(read.formatVersion == 6)
         precondition(read.loopAutoAdvance)
         precondition(read.collections.map(\.name) == ["Pre-show", "Show"])
         precondition(read.slides[0].collectionID == preshow.id)

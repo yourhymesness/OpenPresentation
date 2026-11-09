@@ -1,7 +1,78 @@
 import Foundation
 
+/// Width/height of a presentation's authored coordinate space. Layers keep
+/// normalized coordinates so older 1920x1080 shows remain geometrically intact.
+struct ShowCanvasSize: Equatable, Hashable, Codable {
+    static let fullHD = ShowCanvasSize(width: 1920, height: 1080)
+    static let minimum = 64
+    static let maximum = 8192
+    var width: Int
+    var height: Int
+
+    init(width: Int, height: Int) {
+        self.width = min(Self.maximum, max(Self.minimum, width))
+        self.height = min(Self.maximum, max(Self.minimum, height))
+    }
+
+    var ratio: Double { Double(width) / Double(height) }
+    var sizeLabel: String { "\(width) × \(height)" }
+    var ratioLabel: String {
+        let divisor = Self.gcd(width, height)
+        return "\(width / divisor):\(height / divisor)"
+    }
+    private static func gcd(_ a: Int, _ b: Int) -> Int {
+        var x = a, y = b
+        while y != 0 { (x, y) = (y, x % y) }
+        return max(x, 1)
+    }
+    // Decode through the clamping initializer even for hand-edited JSON.
+    private enum CodingKeys: String, CodingKey { case width, height }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(width: try container.decode(Int.self, forKey: .width),
+                  height: try container.decode(Int.self, forKey: .height))
+    }
+}
+
+/// Curated video formats, plus custom pixels for unusual LED walls and signs.
+enum ShowCanvasPreset: String, CaseIterable, Identifiable {
+    case fullHD, hd, ultraHD, portraitHD, portrait4K, squareHD, square4K
+    case wide2560, wide3072, wide3840, custom
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .fullHD: return "Full HD · 1920 × 1080 (16:9)"
+        case .hd: return "HD · 1280 × 720 (16:9)"
+        case .ultraHD: return "4K · 3840 × 2160 (16:9)"
+        case .portraitHD: return "Portrait · 1080 × 1920 (9:16)"
+        case .portrait4K: return "Portrait 4K · 2160 × 3840 (9:16)"
+        case .squareHD: return "Square · 1080 × 1080 (1:1)"
+        case .square4K: return "Square 4K · 2160 × 2160 (1:1)"
+        case .wide2560: return "LED Wide · 2560 × 720"
+        case .wide3072: return "LED Wide · 3072 × 768"
+        case .wide3840: return "Ultra Wide · 3840 × 1080"
+        case .custom: return "Custom dimensions…"
+        }
+    }
+    var size: ShowCanvasSize? {
+        switch self {
+        case .fullHD: return .fullHD
+        case .hd: return ShowCanvasSize(width: 1280, height: 720)
+        case .ultraHD: return ShowCanvasSize(width: 3840, height: 2160)
+        case .portraitHD: return ShowCanvasSize(width: 1080, height: 1920)
+        case .portrait4K: return ShowCanvasSize(width: 2160, height: 3840)
+        case .squareHD: return ShowCanvasSize(width: 1080, height: 1080)
+        case .square4K: return ShowCanvasSize(width: 2160, height: 2160)
+        case .wide2560: return ShowCanvasSize(width: 2560, height: 720)
+        case .wide3072: return ShowCanvasSize(width: 3072, height: 768)
+        case .wide3840: return ShowCanvasSize(width: 3840, height: 1080)
+        case .custom: return nil
+        }
+    }
+}
+
 /// Every foreground element has the same position, size and stacking model.
-/// Coordinates are normalized to the authored 1920x1080 slide; layers are
+/// Coordinates are normalized to the current show's canvas; layers are
 /// ordered back-to-front, so the last layer is visually on top.
 /// What happens when a finite video reaches its end.
 /// Soft loop overlaps the outgoing and incoming video by `videoFadeDuration`.
@@ -159,31 +230,32 @@ struct SlideLayer: Identifiable, Codable, Equatable {
     /// Changing shape type in the inspector makes Circle/Square/Equilateral
     /// geometrically correct even if the original was an arbitrary rectangle.
     /// Preserve the center and fit the converted shape within the slide.
-    mutating func selectShape(_ shape: SlideShapeKind) {
+    mutating func selectShape(_ shape: SlideShapeKind, canvasSize: ShowCanvasSize = .fullHD) {
         shapeKind = shape
         guard kind == .shape, let aspect = shape.intrinsicPixelAspect else { return }
         aspectRatioLocked = true
         let maxW = max(0.0001, 2 * min(centerX, 1 - centerX))
         let maxH = max(0.0001, 2 * min(centerY, 1 - centerY))
-        let pixelW = min(width * 1920, height * 1080 * aspect,
-                         maxW * 1920, maxH * 1080 * aspect)
-        width = pixelW / 1920
-        height = pixelW / aspect / 1080
+        let pixelW = min(width * Double(canvasSize.width), height * Double(canvasSize.height) * aspect,
+                         maxW * Double(canvasSize.width), maxH * Double(canvasSize.height) * aspect)
+        width = pixelW / Double(canvasSize.width)
+        height = pixelW / aspect / Double(canvasSize.height)
     }
 
     var resolvedContentMode: LayerContentMode { contentMode ?? .fit }
 
-    // Fit and original use the actual asset dimensions if known; fallback is
-    // the authored 1920x1080 canvas, useful for an older video show.
-    mutating func applyScalePreset(_ preset: LayerScalePreset, pixelSize: CGSize? = nil) {
+    // Fit and Original use asset pixel dimensions when known. Otherwise they
+    // use the active authored canvas, including for non-16:9 shows.
+    mutating func applyScalePreset(_ preset: LayerScalePreset, pixelSize: CGSize? = nil,
+                                   canvasSize: ShowCanvasSize = .fullHD) {
         if let pixelSize, pixelSize.width > 0, pixelSize.height > 0 {
             mediaPixelWidth = Double(pixelSize.width)
             mediaPixelHeight = Double(pixelSize.height)
         }
-        let pixelsW = max(1, pixelSize?.width ?? mediaPixelWidth ?? 1920)
-        let pixelsH = max(1, pixelSize?.height ?? mediaPixelHeight ?? 1080)
-        let nativeW = Double(pixelsW) / 1920.0
-        let nativeH = Double(pixelsH) / 1080.0
+        let pixelsW = max(1, pixelSize?.width ?? mediaPixelWidth ?? Double(canvasSize.width))
+        let pixelsH = max(1, pixelSize?.height ?? mediaPixelHeight ?? Double(canvasSize.height))
+        let nativeW = Double(pixelsW) / Double(canvasSize.width)
+        let nativeH = Double(pixelsH) / Double(canvasSize.height)
         switch preset {
         case .fit:
             if kind == .text {
@@ -265,13 +337,16 @@ struct SlideLayer: Identifiable, Codable, Equatable {
         SlideLayer(name: name, kind: .image, width: width, height: height, imageData: data)
     }
 
-    static func makeShape(_ kind: SlideShapeKind) -> SlideLayer {
+    static func makeShape(_ kind: SlideShapeKind, canvasSize: ShowCanvasSize = .fullHD) -> SlideLayer {
         let size: (width: Double, height: Double)
         switch kind {
         case .square, .circle:
-            size = (280 / 1920, 280 / 1080)
+            let side = min(280.0, Double(min(canvasSize.width, canvasSize.height)) * 0.8)
+            size = (side / Double(canvasSize.width), side / Double(canvasSize.height))
         case .equilateralTriangle:
-            size = (320 / 1920, (320 * sqrt(3) / 2) / 1080)
+            let side = min(320.0, Double(canvasSize.width) * 0.8,
+                           Double(canvasSize.height) * 0.8 * 2 / sqrt(3))
+            size = (side / Double(canvasSize.width), (side * sqrt(3) / 2) / Double(canvasSize.height))
         default:
             size = (0.30, 0.28)
         }
@@ -556,9 +631,11 @@ struct SlideCollection: Identifiable, Codable, Equatable {
 }
 
 struct PresentationShow: Codable {
-    var formatVersion: Int = 5
+    var formatVersion: Int = 6
     var title: String
     var slides: [PresentationSlide]
+    /// The source composition size, independent of the physical display resolution.
+    var canvasSize: ShowCanvasSize = .fullHD
     var collections: [SlideCollection] = []
     /// Wrap the last slide of a timed sequence to the first (within the active collection).
     var loopAutoAdvance: Bool = false
@@ -566,12 +643,14 @@ struct PresentationShow: Codable {
     /// Default time a slide stays on Program while Auto Transition is enabled.
     var globalAutoAdvanceSeconds: Double = 10
 
-    init(formatVersion: Int = 5, title: String, slides: [PresentationSlide],
+    init(formatVersion: Int = 6, title: String, slides: [PresentationSlide],
+         canvasSize: ShowCanvasSize = .fullHD,
          collections: [SlideCollection] = [], loopAutoAdvance: Bool = false,
          globalTransitionSeconds: Double = 0.65, globalAutoAdvanceSeconds: Double = 10) {
         self.formatVersion = formatVersion
         self.title = title
         self.slides = slides
+        self.canvasSize = canvasSize
         self.collections = collections
         self.loopAutoAdvance = loopAutoAdvance
         self.globalTransitionSeconds = globalTransitionSeconds
@@ -579,7 +658,7 @@ struct PresentationShow: Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case formatVersion, title, slides, collections, loopAutoAdvance, globalTransitionSeconds, globalAutoAdvanceSeconds
+        case formatVersion, title, slides, canvasWidth, canvasHeight, collections, loopAutoAdvance, globalTransitionSeconds, globalAutoAdvanceSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -589,6 +668,9 @@ struct PresentationShow: Codable {
         // fills it from the filename when blank.
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
         slides = try container.decode([PresentationSlide].self, forKey: .slides)
+        let width = try container.decodeIfPresent(Int.self, forKey: .canvasWidth) ?? 1920
+        let height = try container.decodeIfPresent(Int.self, forKey: .canvasHeight) ?? 1080
+        canvasSize = ShowCanvasSize(width: width, height: height)
         collections = try container.decodeIfPresent([SlideCollection].self, forKey: .collections) ?? []
         loopAutoAdvance = try container.decodeIfPresent(Bool.self, forKey: .loopAutoAdvance) ?? false
         globalTransitionSeconds = try container.decodeIfPresent(Double.self, forKey: .globalTransitionSeconds) ?? 0.65
@@ -600,6 +682,8 @@ struct PresentationShow: Codable {
         try container.encode(formatVersion, forKey: .formatVersion)
         try container.encode(title, forKey: .title)
         try container.encode(slides, forKey: .slides)
+        try container.encode(canvasSize.width, forKey: .canvasWidth)
+        try container.encode(canvasSize.height, forKey: .canvasHeight)
         try container.encode(collections, forKey: .collections)
         try container.encode(loopAutoAdvance, forKey: .loopAutoAdvance)
         try container.encode(globalTransitionSeconds, forKey: .globalTransitionSeconds)

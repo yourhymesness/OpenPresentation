@@ -80,6 +80,10 @@ struct OperatorView: View {
             HStack {
                 Image(systemName: "info.circle")
                 Text(show.statusMessage).lineLimit(1)
+                Text("Canvas: \(show.canvasSize.sizeLabel) · \(show.canvasSize.ratioLabel)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer(minLength: 8)
                 if isBlind {
                     Label("BLIND", systemImage: "eye.slash.fill")
@@ -107,6 +111,9 @@ struct OperatorView: View {
         .animation(.easeInOut(duration: 0.38), value: show.mode)
         // All three navigation paths can change the notes binding while the
         // same TextEditor is mounted. Drop the first responder immediately.
+        .onChange(of: show.canvasSize) { _, nextCanvas in
+            output.updateWindowedAspect(for: nextCanvas)
+        }
         .onChange(of: show.selectedSlideID) { _, _ in
             if isBlind { endTextEditing() }
         }
@@ -452,7 +459,7 @@ struct OperatorView: View {
                             show.select(slide)
                         } label: {
                             VStack(alignment: .leading, spacing: 5) {
-                                SlideCanvas(slide: slide, showTransparencyCheckerboard: true)
+                                SlideCanvas(slide: slide, canvasSize: show.canvasSize, showTransparencyCheckerboard: true)
                                     .frame(height: 112)
                                     .clipShape(RoundedRectangle(cornerRadius: 5))
                                     .overlay(RoundedRectangle(cornerRadius: 5)
@@ -670,7 +677,7 @@ struct OperatorView: View {
                     get: { show.slides.first(where: { $0.id == selected.id }) ?? selected },
                     set: { show.updateSlide($0) }
                 ), canvasHeight: max(90, geometry.size.height - 116),
-                   isBlindTheme: true, controller: show)
+                   canvasSize: show.canvasSize, isBlindTheme: true, controller: show)
                 .id(selected.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
@@ -725,12 +732,13 @@ struct OperatorView: View {
                 Spacer(minLength: 0)
             }
 
-            // Fill all available Program display area while preserving the
-            // 16:9 canvas. The surrounding transport has a reserved height,
+            // Fit the active show's aspect ratio into Program's reserved area.
+            // The surrounding transport has a reserved height,
             // so adding/removing video controls doesn't resize the monitor.
             GeometryReader { area in
-                let width = min(area.size.width, area.size.height * (16.0 / 9.0))
-                let height = width * (9.0 / 16.0)
+                let ratio = CGFloat(show.canvasSize.ratio)
+                let width = min(area.size.width, area.size.height * ratio)
+                let height = width / ratio
                 ProgramCanvas(controller: show)
                     .transaction { $0.disablesAnimations = true }
                     .background(Color.black)
@@ -936,7 +944,7 @@ struct OperatorView: View {
                                     Text("\(index + 1)")
                                         .frame(width: 22)
                                         .font(.caption.monospacedDigit())
-                                    SlideCanvas(slide: slide, showTransparencyCheckerboard: true).frame(width: 105, height: 59)
+                                    SlideCanvas(slide: slide, canvasSize: show.canvasSize, showTransparencyCheckerboard: true).frame(width: 105, height: 59)
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                     Text(slide.displayTitle)
                                         .lineLimit(2)
@@ -991,9 +999,9 @@ struct OperatorView: View {
             show.takeLive(slide)
         } label: {
             VStack(alignment: .leading, spacing: 8) {
-                SlideCanvas(slide: slide, showTransparencyCheckerboard: true)
+                SlideCanvas(slide: slide, canvasSize: show.canvasSize, showTransparencyCheckerboard: true)
                     .frame(maxWidth: .infinity)
-                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .aspectRatio(CGFloat(show.canvasSize.ratio), contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)

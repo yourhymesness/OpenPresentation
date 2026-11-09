@@ -38,3 +38,10 @@ jobs:
             OpenPresentation/Core/CanvasSnapping.swift \
             Tests/MediaStretchAndShapes.swift -o /tmp/media-shape-tests
           /tmp/media-shape-tests
+      - name: Test canvas presets, geometry and legacy show migration
+        run: |
+          swiftc OpenPresentation/Core/PresentationSlide.swift \
+            OpenPresentation/Core/CanvasSnapping.swift \
+            OpenPresentation/Storage/ProjectStore.swift \
+            Tests/CanvasSizePersistence.swift -o /tmp/canvas-size-tests
+          /tmp/canvas-size-tests

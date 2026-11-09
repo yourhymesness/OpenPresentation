@@ -37,7 +37,7 @@ import Foundation
         let json = try JSONEncoder().encode(copy)
         let loaded = try JSONDecoder().decode(PresentationShow.self, from: json)
         assert(loaded.slides[0].layers == copy.slides[0].layers)
-        assert(loaded.formatVersion == 5)
+        assert(loaded.formatVersion == 6)
 
         // Older v5 shows never encoded contentMode or media dimensions.
         let old = """

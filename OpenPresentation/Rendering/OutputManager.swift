@@ -92,9 +92,21 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
         installEscapeClearMonitor(controller: controller)
     }
 
+    /// Update an already-open test window when a different-format show opens.
+    func updateWindowedAspect(for canvas: ShowCanvasSize) {
+        guard let windowed else { return }
+        windowed.contentAspectRatio = NSSize(width: CGFloat(canvas.width), height: CGFloat(canvas.height))
+        let ratio = canvas.ratio
+        let width = min(960.0, 600.0 * ratio)
+        windowed.setContentSize(NSSize(width: CGFloat(width), height: CGFloat(width / ratio)))
+    }
+
     func openTestWindow(controller: ShowController) {
         closeWindowed()
-        let window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 960, height: 540),
+        let ratio = controller.canvasSize.ratio
+        let width = min(960.0, 600.0 * ratio)
+        let height = width / ratio
+        let window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: CGFloat(width), height: CGFloat(height)),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -102,7 +114,8 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
         // Audience windows should never become macOS document tabs. Native
         // window fullscreen remains available through the green titlebar button.
         window.tabbingMode = .disallowed
-        window.contentAspectRatio = NSSize(width: 16, height: 9)
+        window.contentAspectRatio = NSSize(width: CGFloat(controller.canvasSize.width),
+                                           height: CGFloat(controller.canvasSize.height))
         window.backgroundColor = .black
         window.contentView = NSHostingView(rootView: AudienceOutputView(
             controller: controller, output: self, scope: "windowed"))
@@ -188,7 +201,7 @@ private struct AudienceOutputView: View {
         ZStack {
             Color.black
             ProgramCanvas(controller: controller, scaleMode: output.scaleMode,
-                          constrainTo16x9: false, isAudienceOutput: ownsAudio,
+                          constrainToCanvas: false, isAudienceOutput: ownsAudio,
                           outputScope: scope)
         }
         .ignoresSafeArea()

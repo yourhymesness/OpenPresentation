@@ -46,7 +46,7 @@ import Foundation
         modern.slides[0].layers[1].isLocked = true
         try ProjectStore.save(modern, to: temp)
         let result = try ProjectStore.load(from: temp)
-        assert(result.formatVersion == 5)
+        assert(result.formatVersion == 6)
         assert(result.slides == modern.slides)
         assert(result.slides[0].layers.map(\.kind) == [.image, .text, .text])
         print("PASS: v0.1.4 migration, text/image layering, v5 JSON round-trip, visibility, locks, fonts")

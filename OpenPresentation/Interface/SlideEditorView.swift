@@ -48,9 +48,9 @@ private enum InstalledFontFamilies {
 /// slide value until the operator explicitly takes a new snapshot live.
 struct SlideEditorView: View {
     @Binding var slide: PresentationSlide
-    // The Blind workspace gives the interactive canvas substantially more room.
-    // This adjusts editor geometry only; it never changes the 1920×1080 show model.
+    // The Blind workspace reserves space for the authored canvas, at any ratio.
     var canvasHeight: CGFloat = 330
+    var canvasSize: ShowCanvasSize = .fullHD
     var isBlindTheme = false
     var controller: ShowController? = nil
     @State private var mediaError: String?
@@ -164,6 +164,7 @@ struct SlideEditorView: View {
                                       selectedLayerID: $selectedLayerID,
                                       selectedLayerIDs: $selectedLayerIDs,
                                       snapToGuides: snapToGuides,
+                                      canvasSize: canvasSize,
                                       previewFontLayerID: fontPreviewLayerID,
                                       previewFontFamily: hoveredFontFamily,
                                       onScaleLayer: { id, preset in scaleLayer(id, preset: preset) },
@@ -681,17 +682,17 @@ struct SlideEditorView: View {
         .frame(width: 338)
     }
 
-    /// Precise X/Y/W/H fields are based on the current 1920×1080 show canvas.
+    /// Precise X/Y/W/H fields follow the saved presentation canvas.
     /// Fields change the same normalized geometry as the eight drag handles.
     private func pixelBinding(_ binding: Binding<SlideLayer>, field: LayerDimensionField) -> Binding<Double> {
         Binding(
             get: {
                 let rect = LayerGeometry(layer: binding.wrappedValue)
                 switch field {
-                case .x: return rect.left * 1920
-                case .y: return rect.top * 1080
-                case .width: return rect.width * 1920
-                case .height: return rect.height * 1080
+                case .x: return rect.left * Double(canvasSize.width)
+                case .y: return rect.top * Double(canvasSize.height)
+                case .width: return rect.width * Double(canvasSize.width)
+                case .height: return rect.height * Double(canvasSize.height)
                 }
             },
             set: { pixels in
@@ -699,7 +700,7 @@ struct SlideEditorView: View {
                 var adjusted = binding.wrappedValue
                 let rect = LayerGeometry(layer: adjusted).setting(
                     field, pixels: pixels,
-                    canvasWidth: 1920, canvasHeight: 1080,
+                    canvasWidth: Double(canvasSize.width), canvasHeight: Double(canvasSize.height),
                     keepRatio: adjusted.resolvedAspectRatioLocked
                 )
                 rect.applied(to: &adjusted)
@@ -731,7 +732,7 @@ struct SlideEditorView: View {
             if binding.wrappedValue.kind != .audio {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
-                        Text("GEOMETRY · 1920 × 1080").font(.caption2.weight(.semibold))
+                        Text("GEOMETRY · \(canvasSize.sizeLabel)").font(.caption2.weight(.semibold))
                         Spacer()
                         Toggle("Lock ratio", isOn: Binding(
                             get: { binding.wrappedValue.resolvedAspectRatioLocked },
@@ -853,7 +854,7 @@ struct SlideEditorView: View {
                     get: { binding.wrappedValue.resolvedShapeKind },
                     set: {
                         var shape = binding.wrappedValue
-                        shape.selectShape($0)
+                        shape.selectShape($0, canvasSize: canvasSize)
                         binding.wrappedValue = shape
                     }
                 )) {
@@ -1153,7 +1154,7 @@ struct SlideEditorView: View {
             mediaError = "The prototype supports up to \(maxLayersPerSlide) layers per slide."
             return
         }
-        let layer = SlideLayer.makeShape(kind)
+        let layer = SlideLayer.makeShape(kind, canvasSize: canvasSize)
         slide.layers.append(layer)
         selectLayer(layer.id, additive: false)
         canvasFocused = true
@@ -1261,7 +1262,7 @@ struct SlideEditorView: View {
                 layer.mediaPixelWidth = Double(size.width)
                 layer.mediaPixelHeight = Double(size.height)
             }
-            layer.applyScalePreset(preset, pixelSize: sourcePixels)
+            layer.applyScalePreset(preset, pixelSize: sourcePixels, canvasSize: canvasSize)
         }
         selectLayer(id, additive: false)
     }
@@ -1476,7 +1477,7 @@ struct SlideEditorView: View {
                   image.size.height > 0 else { throw ImageError.invalid }
             let aspect = Double(image.size.width / image.size.height)
             let width = min(0.44, max(0.12, aspect * 0.25))
-            let height = min(0.80, max(0.05, width * (16.0 / 9.0) / aspect))
+            let height = min(0.80, max(0.05, width * canvasSize.ratio / aspect))
             var layer = SlideLayer.makeImage(data, width: width, height: height, name: "Image \(slide.layers.filter({ $0.kind == .image }).count + 1)")
             if let dimensions = imagePixelSize(layer) {
                 layer.mediaPixelWidth = Double(dimensions.width)
