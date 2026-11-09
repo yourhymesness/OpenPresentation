@@ -1488,13 +1488,13 @@ private struct StereoAudioMeter: View {
         ZStack(alignment: .bottom) {
             Capsule().fill(Color.gray.opacity(0.24))
             Capsule()
-                .fill(LinearGradient(colors: [.green, .green, .yellow, .red],
-                                     startPoint: .bottom, endPoint: .top))
+                .fill(rms >= 0.91 ? Color.red : (rms >= 0.74 ? Color.yellow : Color.green))
                 .frame(height: max(0, height * CGFloat(min(1, rms))))
             Rectangle()
                 .fill(peak > 0.92 ? Color.red : Color.white)
                 .frame(height: 2)
                 .offset(y: -(max(0, height - 2) * CGFloat(min(1, peak))))
+                .opacity(peak > 0.001 ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()

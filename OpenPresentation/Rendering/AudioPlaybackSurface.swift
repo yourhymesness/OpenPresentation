@@ -65,6 +65,7 @@ final class AudioPlaybackPool {
         let sessionID: UUID
     }
 
+    @MainActor
     private final class Entry {
         let player: AVPlayer
         let looper: AVPlayerLooper?
