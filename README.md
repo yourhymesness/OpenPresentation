@@ -1,3 +1,9 @@
+# OpenPresentation v0.4.7 — Continuous Audio Meter Gradient & Output Priority
+
+Audio meters now use a **continuous full-height green/yellow/orange/red gradient** revealed by the moving peak level; the bars no longer flip color at fixed thresholds. Pre/Post fader behavior and the short white peak hold are unchanged.
+
+**Protect audience video playback:** The Program monitor has a **Preview: Auto / Full Video / Low-load** menu. Auto (default) detects four or more visible videos when an audience output is open, and temporarily replaces the small Program monitor's video decoding with lightweight placeholders. A visible badge warns when preview is reduced. Fullscreen and Windowed audience outputs continue playing every video at the source frame rate. Choose Full Video for an always-animated operator preview, or Low-load to prioritize output even with fewer clips. This reduces duplicate decoders in heavy shows but does not replace a future shared-frame GPU compositor.
+
 # OpenPresentation v0.4.6 — Native-refresh Peak Meters
 
 The audio mixer now draws **actual peak bars** (instead of RMS average bars), so the white peak-hold line rises with the bar and only separates briefly when the signal falls. The meter's UI uses SwiftUI's native animation timeline rather than a fixed 60 Hz timer, adapting to 60/120/144 Hz displays when macOS permits. Source audio PCM polling stays at 20 Hz. Pre/Post-fader routing and v0.4.5 windowed-output improvements remain intact.

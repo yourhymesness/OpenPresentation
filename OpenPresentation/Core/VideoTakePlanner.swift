@@ -56,7 +56,36 @@ enum VideoTakePlanner {
 /// Pure scheduling rules: visual playback always stays at the source frame
 /// rate (AVPlayerLayer), while lightweight end/loop observers may poll slower.
 /// Fullscreen is authoritative, then Windowed, then the silent Program monitor.
+enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
+    case automatic = "Auto"
+    case fullMotion = "Full Video"
+    case lowLoad = "Low-load"
+
+    var id: String { rawValue }
+
+    func playsVideo(visibleVideos: Int, audienceOutputOpen: Bool) -> Bool {
+        switch self {
+        case .fullMotion: return true
+        case .lowLoad: return false
+        case .automatic:
+            // Keep preview fidelity for ordinary shows. Under an unusually
+            // heavy slide, stop duplicate silent Program decoders to protect
+            // audience playback, while leaving audience renderers untouched.
+            return !audienceOutputOpen || visibleVideos < 4
+        }
+    }
+}
+
 enum VideoPlaybackWorkload {
+    static func visibleVideoCount(_ slide: PresentationSlide?) -> Int {
+        guard let slide else { return 0 }
+        let background = (slide.backgroundVideoPath?.isEmpty == false) ? 1 : 0
+        let layers = slide.layers.filter {
+            $0.kind == .video && $0.isVisible && $0.videoPath?.isEmpty == false
+        }.count
+        return background + layers
+    }
+
     static func rank(_ scope: String) -> Int {
         switch scope {
         case "fullscreen": return 3

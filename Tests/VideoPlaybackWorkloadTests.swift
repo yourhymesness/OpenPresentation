@@ -28,6 +28,23 @@ import Foundation
         precondition(!VideoPlaybackWorkload.shouldCorrect(
             follower: "windowed", leader: "fullscreen",
             difference: 0.5, elapsed: 10, bothPlaying: true))
-        print("PASS: playback priority, observation cadence, silent taps, seek cooldown")
+        let heavy = PresentationSlide(text: "Eight videos")
+        var videoSlide = heavy
+        for index in 0..<8 {
+            videoSlide.layers.append(SlideLayer(name: "Video \(index)", kind: .video,
+                                                 videoPath: "/tmp/v\(index).mov"))
+        }
+        precondition(VideoPlaybackWorkload.visibleVideoCount(videoSlide) == 8)
+        precondition(ProgramPreviewQuality.automatic.playsVideo(
+            visibleVideos: 3, audienceOutputOpen: true))
+        precondition(!ProgramPreviewQuality.automatic.playsVideo(
+            visibleVideos: 8, audienceOutputOpen: true))
+        precondition(ProgramPreviewQuality.automatic.playsVideo(
+            visibleVideos: 8, audienceOutputOpen: false))
+        precondition(ProgramPreviewQuality.fullMotion.playsVideo(
+            visibleVideos: 8, audienceOutputOpen: true))
+        precondition(!ProgramPreviewQuality.lowLoad.playsVideo(
+            visibleVideos: 1, audienceOutputOpen: false))
+        print("PASS: playback priority, observation cadence, audio taps, seek cooldown and operator preview policy")
     }
 }

@@ -27,6 +27,7 @@ struct OperatorView: View {
     @ObservedObject var recovery: RecoveryCoordinator
     @AppStorage("liveAppearance") private var liveAppearance = LiveAppearance.system.rawValue
     @AppStorage("liveSlideViewMode") private var liveSlideViewMode = "icons"
+    @AppStorage("programPreviewQuality") private var programPreviewQuality = ProgramPreviewQuality.automatic.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var notesEditorTarget: SlideNotesEditorTarget?
     @State private var transitionEditorTarget: SlideTransitionEditorTarget?
@@ -50,6 +51,21 @@ struct OperatorView: View {
     }
 
     private var isBlind: Bool { show.mode == .blind }
+    private var previewQuality: ProgramPreviewQuality {
+        ProgramPreviewQuality(rawValue: programPreviewQuality) ?? .automatic
+    }
+
+    private var visibleProgramVideoCount: Int {
+        let current = VideoPlaybackWorkload.visibleVideoCount(show.liveSlideSnapshot)
+        let outgoing = VideoPlaybackWorkload.visibleVideoCount(show.activeTransition?.from.slide)
+        return max(current, outgoing)
+    }
+
+    private var programPreviewPlaysVideo: Bool {
+        previewQuality.playsVideo(visibleVideos: visibleProgramVideoCount,
+                                  audienceOutputOpen: output.isOpen)
+    }
+
     private var blindBackground: Color { Color(red: 0.035, green: 0.072, blue: 0.14) }
     private var blindSurface: Color { Color(red: 0.065, green: 0.12, blue: 0.225) }
 
@@ -736,6 +752,24 @@ struct OperatorView: View {
                                         tint: show.isBlackout ? .red : (show.isCleared ? .gray : .green))
                 }
                 Spacer(minLength: 0)
+                if !programPreviewPlaysVideo && visibleProgramVideoCount > 0 {
+                    Label("VIDEO PREVIEW REDUCED", systemImage: "bolt.fill")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                        .help("This Program monitor is using placeholders to spare video decoders. Audience output remains full motion.")
+                }
+                Menu {
+                    ForEach(ProgramPreviewQuality.allCases) { quality in
+                        Button(quality.rawValue) { programPreviewQuality = quality.rawValue }
+                    }
+                } label: {
+                    Label("Preview: \(previewQuality.rawValue)", systemImage: "gauge.medium")
+                        .font(.caption2)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Auto uses a reduced Program video preview when an audience output is open and the slide has 4+ video sources. Full Video always renders all Program videos. Low-load always uses placeholders.")
             }
 
             // Fit the active show's aspect ratio into Program's reserved area.
@@ -745,7 +779,8 @@ struct OperatorView: View {
                 let ratio = CGFloat(show.canvasSize.ratio)
                 let width = min(area.size.width, area.size.height * ratio)
                 let height = width / ratio
-                ProgramCanvas(controller: show)
+                ProgramCanvas(controller: show,
+                              videoDecodingEnabled: programPreviewPlaysVideo)
                     .transaction { $0.disablesAnimations = true }
                     .background(Color.black)
                     .clipShape(RoundedRectangle(cornerRadius: 7))
@@ -1491,10 +1526,23 @@ private struct StereoAudioMeter: View {
                 if clamped > 0.001 {
                     Capsule()
                         .fill(LinearGradient(
-                            colors: [.green.opacity(0.7),
-                                     clamped > 0.90 ? .red : (clamped > 0.78 ? .yellow : .green)],
+                            stops: [
+                                .init(color: Color(red: 0.08, green: 0.80, blue: 0.36), location: 0),
+                                .init(color: Color(red: 0.14, green: 0.87, blue: 0.35), location: 0.67),
+                                .init(color: Color(red: 0.77, green: 0.88, blue: 0.20), location: 0.79),
+                                .init(color: Color(red: 1.00, green: 0.80, blue: 0.13), location: 0.87),
+                                .init(color: Color(red: 1.00, green: 0.44, blue: 0.08), location: 0.94),
+                                .init(color: Color(red: 0.93, green: 0.15, blue: 0.20), location: 1)
+                            ],
                             startPoint: .bottom, endPoint: .top))
-                        .frame(height: max(2, height * CGFloat(clamped)))
+                        .frame(width: 16, height: height)
+                        // The gradient is fixed over the WHOLE meter. Only
+                        // its visible bottom portion grows with the peak;
+                        // low levels stay green and high levels reveal yellow
+                        // and red smoothly, with no color flip at a threshold.
+                        .mask(alignment: .bottom) {
+                            Capsule().frame(height: max(2, height * CGFloat(clamped)))
+                        }
                 }
                 if heldPeak > 0.001 {
                     Rectangle()

@@ -1,3 +1,12 @@
+## v0.4.7 — Smooth meter gradient and Fullscreen output protection
+
+- Replaced the meter's discrete green/yellow/red threshold switching with a **fixed full-height six-stop gradient**. A rising peak bar reveals the green→yellow→orange→red spectrum continuously instead of changing its entire color at a threshold.
+- Added **Program Preview Quality** selection to the Program monitor: Auto (default), Full Video, and Low-load. Under Auto, when an audience output is open and a slide has four or more visible video sources, the *small Program monitor only* stops redundant video decoding and displays labeled lightweight video placeholders instead. Audio controls, text/shape layout, audience video timing, and the audience output remain unaffected.
+- The Program monitor explicitly displays “VIDEO PREVIEW REDUCED” while lightweight preview is in use, and Full Video restores the full-motion monitor if desired.
+- Rationale: a slide with eight videos and Fullscreen + Windowed + Program could previously run up to 24 distinct AVPlayer decoders, increasing memory and compositor load. This mode lowers the redundant monitor load without reducing audience frame rates. It does not eliminate independent Fullscreen + Windowed decoders.
+- Added tests for the high-load preview policy, with the existing output work/synchronization suite retained.
+- **Caution:** When preview is reduced, its video areas are placeholders rather than live frames. This is an intentional operational tradeoff, selectable at any time. A shared frame compositor is a future enhancement.
+
 ## v0.4.6 — Peak meter display cadence fix
 
 - Made filled stereo bars follow the **measured audio peaks**, not RMS average, so the peak-hold line rides the bar when new peaks occur. It holds briefly when the bar drops and decays back toward the current level.

@@ -388,6 +388,9 @@ struct ProgramCanvas: View {
     var constrainToCanvas: Bool = true
     var isAudienceOutput: Bool = false
     var outputScope: String = "program"
+    /// Allows reducing duplicate Program preview decoding under heavy loads.
+    /// The actual audience canvases always retain full video playback.
+    var videoDecodingEnabled: Bool = true
     private var showCanvasSize: ShowCanvasSize { controller.canvasSize }
 
     private func audioGains(for transition: ProgramTransition, at date: Date) -> (old: Double, new: Double) {
@@ -431,7 +434,7 @@ struct ProgramCanvas: View {
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                     // Shared video is already drawn under this overlay.
-                                    playsVideo: true,
+                                    playsVideo: videoDecodingEnabled,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     cueAudioGainOverride: (transition.from.slide?.resolvedCueAudioGain ?? 1) * (1 - transition.progress(at: timeline.date))
@@ -451,7 +454,7 @@ struct ProgramCanvas: View {
                                     scaleMode: scaleMode,
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
-                                    playsVideo: true,
+                                    playsVideo: videoDecodingEnabled,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
@@ -464,7 +467,7 @@ struct ProgramCanvas: View {
                                     scaleMode: scaleMode,
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
-                                    playsVideo: true,
+                                    playsVideo: videoDecodingEnabled,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
@@ -478,7 +481,7 @@ struct ProgramCanvas: View {
                                     scaleMode: scaleMode,
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
-                                    playsVideo: true,
+                                    playsVideo: videoDecodingEnabled,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
@@ -492,7 +495,7 @@ struct ProgramCanvas: View {
                                     scaleMode: scaleMode,
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
-                                    playsVideo: true,
+                                    playsVideo: videoDecodingEnabled,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
@@ -508,7 +511,7 @@ struct ProgramCanvas: View {
                                 constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: sharedBackground == nil,
-                                playsVideo: true,
+                                playsVideo: videoDecodingEnabled,
                                 allowsVideoAudio: isAudienceOutput,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.old,
@@ -523,7 +526,7 @@ struct ProgramCanvas: View {
                                 constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: sharedBackground == nil,
-                                playsVideo: true,
+                                playsVideo: videoDecodingEnabled,
                                 allowsVideoAudio: isAudienceOutput,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.new,
@@ -540,7 +543,7 @@ struct ProgramCanvas: View {
                                 constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: true,
-                                playsVideo: true,
+                                playsVideo: videoDecodingEnabled,
                                 allowsVideoAudio: isAudienceOutput,
                                 outputScope: outputScope,
                                 videoSessions: controller.liveVideoSessions)
