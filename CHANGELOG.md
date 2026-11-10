@@ -1,3 +1,12 @@
+## v0.4.9-alpha — Live Shared 12 FPS Program preview
+
+- Instead of static placeholders, Auto responds to detected lag by switching only the small Program monitor to moving frames sampled from the active audience's AVPlayerItemVideoOutput. It uses the audience's existing decoded pixel buffers rather than allocating separate AVPlayers in Program.
+- Added manual **Shared 12 FPS** preview selection alongside Auto, Full Video and Low-load. Shared mode requires an open audience window; with none open, Program falls back to native full video.
+- Frames are sampled at most 12 times/second, with each image capped at 360 pixels on its longest edge. One shared timer and per-stream sampling cache update preview CALayers directly without SwiftUI layout invalidations.
+- Reduced Auto false positives by ignoring most minor main-thread timing variation (two >180ms overshoots, or one >500ms stall, now needed).
+- Actual Fullscreen/Windowed players retain their original frame rates, audio ownership, transitions, playheads, and output priority. GIF animation remains active in sampled preview mode.
+- Limitations: First samples can take a moment; some codecs or protection modes may not supply pixel buffers, and video areas may appear black in sampled mode. Select Full Video for those sources. This is not yet a unified GPU compositor, and soft-loop dissolves may be less smooth in sampled preview. Test on macOS hardware before live use.
+
 ## v0.4.8 — Pressure-adaptive Program Preview
 
 - Changed Program Preview Auto from a **video-count threshold** to a performance-sensitive policy. Even heavy slides begin with a full-motion Program preview; Auto reduces only if the operator main-thread heartbeat shows repeated significant stalls (or one severe stall), macOS reports memory pressure, or ProcessInfo reports serious/critical thermal pressure.

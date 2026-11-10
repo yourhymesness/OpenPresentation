@@ -1,3 +1,9 @@
+# OpenPresentation v0.4.9 Alpha — Moving Shared Video Preview
+
+The Program monitor now supports **Shared 12 FPS**: it displays reduced-size frames from the existing audience decoders rather than creating additional Program AVPlayers. Select **Preview: Shared 12 FPS** manually to test. **Auto** still begins full-motion, switching to the moving shared view if sustained interface/memory/thermal pressure is reported; the previous black/placeholder fallback is reserved for manual **Low-load**. If no audience output is open, Shared mode uses native full-motion Program playback. Sources are sampled at 360px maximum size; Fullscreen/Windowed audience video frame rates are unchanged.
+
+Known alpha limitations: AVFoundation may not provide pixel buffers for every local video, and the preview can briefly be black before its first frame. Full Video is the compatibility override. Test looping, soft looping, alpha video, audio-disabled media, GIFs and layered transitions before production.
+
 # OpenPresentation v0.4.8 — Adaptive Preview, Not an Arbitrary Video Limit
 
 **Preview: Auto** now keeps **full-motion video even on slides with 8+ videos**, as long as the computer appears responsive. It watches macOS memory-pressure events, serious/critical thermal state, and repeated main-thread heartbeat stalls. If these indicate trouble while an audience output is open, Auto temporarily uses lightweight video placeholders in the **operator Program preview only**; after 30 seconds of stability, it restores the full-motion preview. The badge says why it reduced. Choose **Full Video** to disable automatic reduction or **Low-load** to always prioritize audience playback. The audience video always remains full-motion.

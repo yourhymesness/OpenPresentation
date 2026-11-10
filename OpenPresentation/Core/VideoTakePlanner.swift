@@ -59,23 +59,41 @@ enum VideoTakePlanner {
 enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
     case automatic = "Auto"
     case fullMotion = "Full Video"
+    case sharedFrames = "Shared 12 FPS"
     case lowLoad = "Low-load"
 
     var id: String { rawValue }
 
-    func playsVideo(visibleVideos: Int, audienceOutputOpen: Bool,
-                    pressureDetected: Bool = false) -> Bool {
+    func renderMode(visibleVideos: Int, audienceOutputOpen: Bool,
+                    pressureDetected: Bool = false) -> ProgramPreviewRenderMode {
         switch self {
-        case .fullMotion: return true
-        case .lowLoad: return false
+        case .fullMotion: return .native
+        case .lowLoad: return .placeholder
+        case .sharedFrames: return audienceOutputOpen ? .sharedFrames : .native
         case .automatic:
-            // Video count alone is no longer evidence of overload. Start
-            // full-motion, and shed duplicate Program decoders only when
-            // the performance governor sees sustained pressure.
-            return !audienceOutputOpen || visibleVideos == 0 || !pressureDetected
+            return audienceOutputOpen && visibleVideos > 0 && pressureDetected
+                ? .sharedFrames : .native
         }
     }
+
+    /// "Plays video" means a dedicated local Program AVPlayer is needed.
+    func playsVideo(visibleVideos: Int, audienceOutputOpen: Bool,
+                    pressureDetected: Bool = false) -> Bool {
+        renderMode(visibleVideos: visibleVideos,
+                   audienceOutputOpen: audienceOutputOpen,
+                   pressureDetected: pressureDetected) == .native
+    }
 }
+
+enum ProgramPreviewRenderMode {
+    case native, sharedFrames, placeholder
+}
+
+enum SharedVideoPreviewPolicy {
+    static let framesPerSecond: Double = 12
+    static let maximumImageDimension: Double = 360
+}
+
 
 
 /// Pure reactive policy for conserving video decoders on the *operator*
@@ -112,10 +130,10 @@ struct ProgramPreviewPerformanceGovernor {
         // seconds (or a single severe stall) request reduced preview.
         lagScore *= pow(0.5, min(10, delta) / 4.0)
         let overshoot = max(0, timerOvershoot.isFinite ? timerOvershoot : 0)
-        if overshoot > 0.20 {
-            lagScore += 3.2
-        } else if overshoot > 0.075 {
-            lagScore += 1.55
+        if overshoot > 0.50 {
+            lagScore += 3.6
+        } else if overshoot > 0.18 {
+            lagScore += 1.65
         }
         let pressureReason: String? = {
             if memoryPressure { return "Memory pressure" }

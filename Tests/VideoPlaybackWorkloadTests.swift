@@ -41,6 +41,19 @@ import Foundation
             visibleVideos: 8, audienceOutputOpen: true))
         precondition(!ProgramPreviewQuality.automatic.playsVideo(
             visibleVideos: 8, audienceOutputOpen: true, pressureDetected: true))
+        precondition(ProgramPreviewQuality.automatic.renderMode(
+            visibleVideos: 1, audienceOutputOpen: true, pressureDetected: true) == .sharedFrames)
+        precondition(ProgramPreviewQuality.automatic.renderMode(
+            visibleVideos: 8, audienceOutputOpen: true, pressureDetected: false) == .native)
+        precondition(ProgramPreviewQuality.sharedFrames.renderMode(
+            visibleVideos: 8, audienceOutputOpen: true) == .sharedFrames)
+        precondition(ProgramPreviewQuality.sharedFrames.renderMode(
+            visibleVideos: 8, audienceOutputOpen: false) == .native)
+        precondition(ProgramPreviewQuality.fullMotion.renderMode(
+            visibleVideos: 8, audienceOutputOpen: true, pressureDetected: true) == .native)
+        precondition(ProgramPreviewQuality.lowLoad.renderMode(
+            visibleVideos: 8, audienceOutputOpen: true) == .placeholder)
+        precondition(SharedVideoPreviewPolicy.framesPerSecond == 12)
         precondition(ProgramPreviewQuality.automatic.playsVideo(
             visibleVideos: 8, audienceOutputOpen: false))
         precondition(ProgramPreviewQuality.fullMotion.playsVideo(
@@ -56,10 +69,10 @@ import Foundation
         }
         precondition(!governor.isReduced, "Video count alone must not reduce the preview")
         let lag1 = zero.addingTimeInterval(10.25)
-        governor.sample(at: lag1, timerOvershoot: 0.11, audienceOutputOpen: true,
+        governor.sample(at: lag1, timerOvershoot: 0.23, audienceOutputOpen: true,
                         visibleVideos: 8)
         precondition(!governor.isReduced, "A single moderate hiccup should not trip Auto")
-        governor.sample(at: lag1.addingTimeInterval(0.25), timerOvershoot: 0.12,
+        governor.sample(at: lag1.addingTimeInterval(0.25), timerOvershoot: 0.25,
                         audienceOutputOpen: true, visibleVideos: 8)
         precondition(governor.isReduced && governor.reason == "Interface lag")
         governor.sample(at: lag1.addingTimeInterval(1), timerOvershoot: 0,

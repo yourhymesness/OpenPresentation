@@ -1,6 +1,8 @@
 import AppKit
 import AVFoundation
 import SwiftUI
+import CoreImage
+import CoreVideo
 
 /// A SwiftUI video view is disposable. Its AVPlayer must NOT be: a slide
 /// dissolve constructs a temporary incoming canvas and then removes it.
@@ -170,6 +172,20 @@ final class VideoPlaybackPool {
     private var entries: [Key: Entry] = [:]
     private var lastDriftCorrection: [Key: Date] = [:]
     private init() {}
+
+    /// Sample an active audience video engine only; never allocate a new
+    /// decoder or seek the audience player for Program preview frames.
+    func previewFrame(path: String, sessionID: UUID, sourceSlot: String) -> CGImage? {
+        let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+        for scope in ["fullscreen", "windowed"] {
+            let key = Key(path: canonical, scope: scope,
+                          sessionID: sessionID, sourceSlot: sourceSlot)
+            guard let engine = entries[key]?.engine,
+                  engine.superview != nil, engine.isConfigured else { continue }
+            if let frame = engine.makeSharedPreviewFrame() { return frame }
+        }
+        return nil
+    }
 
     func engine(for key: Key) -> VideoPlaybackNSView {
         if let entry = entries[key] { return entry.engine }
@@ -405,6 +421,8 @@ final class VideoPlaybackNSView: NSView {
     private var timeObserverToken: Any?
     private weak var timeObserverPlayer: AVPlayer?
     private var endNotification: NSObjectProtocol?
+    private weak var previewAttachedItem: AVPlayerItem?
+    private var previewVideoOutput: AVPlayerItemVideoOutput?
     private var lastKnownDuration = 0.0
     private var userPaused = false
     private var lastAppliedSeekRevision = -1
@@ -613,6 +631,40 @@ final class VideoPlaybackNSView: NSView {
         player.play()
     }
 
+    /// Pull one downscaled decoded frame from an existing audience AVPlayerItem.
+    /// The video output follows queue-item changes after an AVPlayerLooper loop.
+    func makeSharedPreviewFrame() -> CGImage? {
+        guard !suspended, let item = primary?.currentItem else { return nil }
+        if previewAttachedItem !== item || previewVideoOutput == nil {
+            releaseSharedPreviewOutput()
+            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+            ])
+            item.add(output)
+            previewAttachedItem = item
+            previewVideoOutput = output
+        }
+        guard let output = previewVideoOutput else { return nil }
+        let time = item.currentTime()
+        guard time.isNumeric, output.hasNewPixelBuffer(forItemTime: time),
+              let buffer = output.copyPixelBuffer(forItemTime: time,
+                                                   itemTimeForDisplay: nil) else { return nil }
+        let image = CIImage(cvPixelBuffer: buffer)
+        guard image.extent.width > 0, image.extent.height > 0 else { return nil }
+        let ratio = min(1, CGFloat(SharedVideoPreviewPolicy.maximumImageDimension) /
+                         max(image.extent.width, image.extent.height))
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: ratio, y: ratio))
+        return SharedVideoPreviewHub.context.createCGImage(scaled, from: scaled.extent)
+    }
+
+    private func releaseSharedPreviewOutput() {
+        if let attached = previewAttachedItem, let output = previewVideoOutput {
+            attached.remove(output)
+        }
+        previewAttachedItem = nil
+        previewVideoOutput = nil
+    }
+
     func refreshAudioRouting() {
         if let primary { AudioOutputRouting.apply(to: primary) }
         if let standby { AudioOutputRouting.apply(to: standby) }
@@ -793,6 +845,7 @@ final class VideoPlaybackNSView: NSView {
     }
 
     func stop() {
+        releaseSharedPreviewOutput()
         suspended = false
         userPaused = false
         lastAppliedSeekRevision = -1
@@ -824,5 +877,134 @@ final class VideoPlaybackNSView: NSView {
         // from an arbitrary deallocation context.
         primary?.pause()
         standby?.pause()
+    }
+}
+
+
+/// Moving 12 FPS preview backed by real audience-decoded video frames.
+/// Neither this view nor its hub creates an AVPlayer.
+struct SharedVideoPreviewSurface: NSViewRepresentable {
+    let path: String
+    let playbackSessionID: UUID
+    let sourceSlot: String
+    let contentMode: LayerContentMode
+
+    func makeNSView(context: Context) -> SharedVideoSnapshotView {
+        let view = SharedVideoSnapshotView(frame: .zero)
+        view.configure(path: path, sessionID: playbackSessionID,
+                       sourceSlot: sourceSlot, mode: contentMode)
+        return view
+    }
+
+    func updateNSView(_ view: SharedVideoSnapshotView, context: Context) {
+        view.configure(path: path, sessionID: playbackSessionID,
+                       sourceSlot: sourceSlot, mode: contentMode)
+    }
+
+    static func dismantleNSView(_ view: SharedVideoSnapshotView, coordinator: ()) {
+        view.unsubscribe()
+    }
+}
+
+private struct SharedVideoStreamKey: Hashable {
+    let path: String
+    let sessionID: UUID
+    let sourceSlot: String
+}
+
+final class SharedVideoSnapshotView: NSView {
+    fileprivate let identity = UUID()
+    fileprivate private(set) var streamKey: SharedVideoStreamKey?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
+    }
+
+    func configure(path: String, sessionID: UUID,
+                   sourceSlot: String, mode: LayerContentMode) {
+        switch mode {
+        case .fit: layer?.contentsGravity = .resizeAspect
+        case .fill: layer?.contentsGravity = .resizeAspectFill
+        case .stretch: layer?.contentsGravity = .resize
+        }
+        let key = SharedVideoStreamKey(
+            path: URL(fileURLWithPath: path).standardizedFileURL.path,
+            sessionID: sessionID, sourceSlot: sourceSlot)
+        guard streamKey != key else { return }
+        unsubscribe()
+        streamKey = key
+        layer?.contents = nil
+        SharedVideoPreviewHub.shared.subscribe(self)
+    }
+
+    fileprivate func present(_ image: CGImage) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.contents = image
+        CATransaction.commit()
+    }
+
+    func unsubscribe() {
+        SharedVideoPreviewHub.shared.unsubscribe(identity)
+        streamKey = nil
+        layer?.contents = nil
+    }
+}
+
+/// One 12 Hz timer across all visible Program surfaces; each unique stream
+/// sampled once per tick. Direct CALayer updates avoid invalidating SwiftUI.
+private final class SharedVideoPreviewHub {
+    static let shared = SharedVideoPreviewHub()
+    static let context = CIContext(options: [.cacheIntermediates: false])
+
+    private final class WeakView {
+        weak var view: SharedVideoSnapshotView?
+        init(_ view: SharedVideoSnapshotView) { self.view = view }
+    }
+    private var previews: [UUID: WeakView] = [:]
+    private var timer: Timer?
+    private init() {}
+
+    func subscribe(_ view: SharedVideoSnapshotView) {
+        previews[view.identity] = WeakView(view)
+        if timer == nil {
+            let newTimer = Timer(timeInterval: 1 / SharedVideoPreviewPolicy.framesPerSecond,
+                                 repeats: true) { [weak self] _ in self?.sample() }
+            newTimer.tolerance = 0.01
+            RunLoop.main.add(newTimer, forMode: .common)
+            timer = newTimer
+        }
+    }
+
+    func unsubscribe(_ id: UUID) {
+        previews.removeValue(forKey: id)
+        if previews.isEmpty { timer?.invalidate(); timer = nil }
+    }
+
+    private func sample() {
+        previews = previews.filter { $0.value.view?.streamKey != nil }
+        guard !previews.isEmpty else {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
+        let byStream = Dictionary(grouping: previews.values.compactMap(\.view),
+                                  by: { $0.streamKey! })
+        for (key, views) in byStream {
+            guard let image = VideoPlaybackPool.shared.previewFrame(
+                path: key.path, sessionID: key.sessionID,
+                sourceSlot: key.sourceSlot) else { continue }
+            for view in views { view.present(image) }
+        }
     }
 }

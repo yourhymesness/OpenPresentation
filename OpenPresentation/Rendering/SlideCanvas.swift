@@ -67,6 +67,7 @@ struct SlideCanvas: View {
     // Only the live Program surface needs active decoding. Thumbnails, the
     // editor and Preview display a placeholder so they don't consume players.
     var playsVideo: Bool = false
+    var sharedVideoPreview: Bool = false
     // Only the actual Audience Output window may emit audio; the small
     // Program monitor never does, preventing duplicate sound on one Mac.
     var allowsVideoAudio: Bool = false
@@ -144,7 +145,7 @@ struct SlideCanvas: View {
                                sharedBackgroundMode == .contentWithoutSharedBackground) &&
                               !backgroundIsShared && !isCleared && !isBlackout,
                               let data = slide?.backgroundImageData, let image = MediaImageCache.image(for: data) {
-                        if playsVideo && AnimatedGIFImage.isGIF(data) {
+                        if (playsVideo || sharedVideoPreview) && AnimatedGIFImage.isGIF(data) {
                             AnimatedGIFImage(data: data)
                                 .frame(width: canvasWidth, height: canvasHeight)
                                 .clipped()
@@ -204,7 +205,7 @@ struct SlideCanvas: View {
         case .image:
             if let data = layer.imageData, let image = MediaImageCache.image(for: data) {
                 Group {
-                    if playsVideo && AnimatedGIFImage.isGIF(data) {
+                    if (playsVideo || sharedVideoPreview) && AnimatedGIFImage.isGIF(data) {
                         AnimatedGIFImage(data: data, contentMode: layer.resolvedContentMode)
                     } else {
                         switch layer.resolvedContentMode {
@@ -274,6 +275,14 @@ struct SlideCanvas: View {
                                  preFaderGain: volume * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
                                      ? 1.0 : transitionAudioGain),
                                  faderGain: cueAudioGain)
+                .frame(width: width, height: height)
+                .clipped()
+        } else if sharedVideoPreview {
+            SharedVideoPreviewSurface(
+                path: path,
+                playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
+                    UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                sourceSlot: sourceSlot, contentMode: contentMode)
                 .frame(width: width, height: height)
                 .clipped()
         } else {
@@ -391,6 +400,7 @@ struct ProgramCanvas: View {
     /// Allows reducing duplicate Program preview decoding under heavy loads.
     /// The actual audience canvases always retain full video playback.
     var videoDecodingEnabled: Bool = true
+    var sharedVideoPreview: Bool = false
     private var showCanvasSize: ShowCanvasSize { controller.canvasSize }
 
     private func audioGains(for transition: ProgramTransition, at date: Date) -> (old: Double, new: Double) {
@@ -435,6 +445,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     // Shared video is already drawn under this overlay.
                                     playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     cueAudioGainOverride: (transition.from.slide?.resolvedCueAudioGain ?? 1) * (1 - transition.progress(at: timeline.date))
@@ -455,6 +466,7 @@ struct ProgramCanvas: View {
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
@@ -468,6 +480,7 @@ struct ProgramCanvas: View {
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
@@ -482,6 +495,7 @@ struct ProgramCanvas: View {
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
@@ -496,6 +510,7 @@ struct ProgramCanvas: View {
                                     constrainToCanvas: constrainToCanvas,
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                     allowsVideoAudio: isAudienceOutput,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
@@ -512,6 +527,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                 allowsVideoAudio: isAudienceOutput,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.old,
@@ -527,6 +543,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                 allowsVideoAudio: isAudienceOutput,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.new,
@@ -544,6 +561,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                 showTransparencyOnBlack: true,
                                 playsVideo: videoDecodingEnabled,
+                                    sharedVideoPreview: sharedVideoPreview,
                                 allowsVideoAudio: isAudienceOutput,
                                 outputScope: outputScope,
                                 videoSessions: controller.liveVideoSessions)

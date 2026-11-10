@@ -110,8 +110,8 @@ struct OperatorView: View {
         return max(current, outgoing)
     }
 
-    private var programPreviewPlaysVideo: Bool {
-        previewQuality.playsVideo(visibleVideos: visibleProgramVideoCount,
+    private var programPreviewRenderMode: ProgramPreviewRenderMode {
+        previewQuality.renderMode(visibleVideos: visibleProgramVideoCount,
                                   audienceOutputOpen: output.isOpen,
                                   pressureDetected: previewHealth.reduced)
     }
@@ -808,14 +808,16 @@ struct OperatorView: View {
                                         tint: show.isBlackout ? .red : (show.isCleared ? .gray : .green))
                 }
                 Spacer(minLength: 0)
-                if !programPreviewPlaysVideo && visibleProgramVideoCount > 0 {
-                    Label("PREVIEW REDUCED", systemImage: "bolt.fill")
+                if programPreviewRenderMode != .native && visibleProgramVideoCount > 0 {
+                    Label(programPreviewRenderMode == .sharedFrames
+                          ? "SHARED 12 FPS" : "PREVIEW REDUCED",
+                          systemImage: "bolt.fill")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.orange)
                         .lineLimit(1)
-                        .help(previewQuality == .automatic
-                              ? "Auto reduced video preview due to \(previewHealth.reason). Audience output stays full motion."
-                              : "Manual Low-load: Program uses placeholders. Audience output remains full motion.")
+                        .help(programPreviewRenderMode == .sharedFrames
+                              ? "Program reads sampled frames from audience video decoders at 12 FPS. \(previewQuality == .automatic ? "Auto trigger: \(previewHealth.reason)" : "Manual shared preview")"
+                              : "Manual Low-load uses static placeholders; audience output remains full motion.")
                 }
                 Menu {
                     ForEach(ProgramPreviewQuality.allCases) { quality in
@@ -827,7 +829,7 @@ struct OperatorView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Auto: keep full-motion Program video until interface lag, memory pressure or serious thermal pressure is detected. Restore after 30 seconds of stability. Full Video and Low-load are manual overrides.")
+                .help("Auto switches to shared 12 FPS moving video only when sustained pressure is detected. Shared 12 FPS avoids Program decoders while the audience output is open. Full Video and Low-load are overrides.")
             }
 
             // Fit the active show's aspect ratio into Program's reserved area.
@@ -838,7 +840,8 @@ struct OperatorView: View {
                 let width = min(area.size.width, area.size.height * ratio)
                 let height = width / ratio
                 ProgramCanvas(controller: show,
-                              videoDecodingEnabled: programPreviewPlaysVideo)
+                              videoDecodingEnabled: programPreviewRenderMode == .native,
+                              sharedVideoPreview: programPreviewRenderMode == .sharedFrames)
                     .transaction { $0.disablesAnimations = true }
                     .background(Color.black)
                     .clipShape(RoundedRectangle(cornerRadius: 7))
