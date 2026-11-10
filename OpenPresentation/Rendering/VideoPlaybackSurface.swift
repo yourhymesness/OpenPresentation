@@ -175,14 +175,14 @@ final class VideoPlaybackPool {
 
     /// Sample an active audience video engine only; never allocate a new
     /// decoder or seek the audience player for Program preview frames.
-    func previewFrame(path: String, sessionID: UUID, sourceSlot: String) -> CGImage? {
+    func previewPixelBuffer(path: String, sessionID: UUID, sourceSlot: String) -> CVPixelBuffer? {
         let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
         for scope in ["fullscreen", "windowed"] {
             let key = Key(path: canonical, scope: scope,
                           sessionID: sessionID, sourceSlot: sourceSlot)
             guard let engine = entries[key]?.engine,
                   engine.superview != nil, engine.isConfigured else { continue }
-            if let frame = engine.makeSharedPreviewFrame() { return frame }
+            if let buffer = engine.copySharedPreviewPixelBuffer() { return buffer }
         }
         return nil
     }
@@ -631,9 +631,10 @@ final class VideoPlaybackNSView: NSView {
         player.play()
     }
 
-    /// Pull one downscaled decoded frame from an existing audience AVPlayerItem.
-    /// The video output follows queue-item changes after an AVPlayerLooper loop.
-    func makeSharedPreviewFrame() -> CGImage? {
+    /// Return an acquired decoded buffer from the live audience AVPlayerItem.
+    /// CI downscaling is dispatched to a serial render queue so large slides
+    /// never perform repeated GPU readback on the operator's main thread.
+    func copySharedPreviewPixelBuffer() -> CVPixelBuffer? {
         guard !suspended, let item = primary?.currentItem else { return nil }
         if previewAttachedItem !== item || previewVideoOutput == nil {
             releaseSharedPreviewOutput()
@@ -646,15 +647,10 @@ final class VideoPlaybackNSView: NSView {
         }
         guard let output = previewVideoOutput else { return nil }
         let time = item.currentTime()
-        guard time.isNumeric, output.hasNewPixelBuffer(forItemTime: time),
-              let buffer = output.copyPixelBuffer(forItemTime: time,
-                                                   itemTimeForDisplay: nil) else { return nil }
-        let image = CIImage(cvPixelBuffer: buffer)
-        guard image.extent.width > 0, image.extent.height > 0 else { return nil }
-        let ratio = min(1, CGFloat(SharedVideoPreviewPolicy.maximumImageDimension) /
-                         max(image.extent.width, image.extent.height))
-        let scaled = image.transformed(by: CGAffineTransform(scaleX: ratio, y: ratio))
-        return SharedVideoPreviewHub.context.createCGImage(scaled, from: scaled.extent)
+        guard time.isNumeric, output.hasNewPixelBuffer(forItemTime: time) else {
+            return nil
+        }
+        return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
     }
 
     private func releaseSharedPreviewOutput() {
@@ -973,6 +969,10 @@ private final class SharedVideoPreviewHub {
     }
     private var previews: [UUID: WeakView] = [:]
     private var timer: Timer?
+    private var conversionInFlight = false
+    private let conversionQueue = DispatchQueue(
+        label: "com.openpresentation.shared-preview-frames",
+        qos: .userInitiated)
     private init() {}
 
     func subscribe(_ view: SharedVideoSnapshotView) {
@@ -998,13 +998,48 @@ private final class SharedVideoPreviewHub {
             timer = nil
             return
         }
-        let byStream = Dictionary(grouping: previews.values.compactMap(\.view),
-                                  by: { $0.streamKey! })
-        for (key, views) in byStream {
-            guard let image = VideoPlaybackPool.shared.previewFrame(
+        // When conversion takes longer than 83 ms, drop preview ticks rather
+        // than queuing unbounded work that could interfere with audience video.
+        guard !conversionInFlight else { return }
+        let keys = Set(previews.values.compactMap { $0.view?.streamKey })
+        let buffers: [(SharedVideoStreamKey, CVPixelBuffer)] = keys.compactMap { key in
+            guard let buffer = VideoPlaybackPool.shared.previewPixelBuffer(
                 path: key.path, sessionID: key.sessionID,
-                sourceSlot: key.sourceSlot) else { continue }
-            for view in views { view.present(image) }
+                sourceSlot: key.sourceSlot) else { return nil }
+            return (key, buffer)
         }
+        guard !buffers.isEmpty else { return }
+        conversionInFlight = true
+        conversionQueue.async { [weak self] in
+            // CIContext is reused on this one serial queue. Each CVPixelBuffer
+            // remains retained until the corresponding downscaled CGImage has
+            // been produced, without touching any live AVPlayer transport.
+            let images: [(SharedVideoStreamKey, CGImage)] = buffers.compactMap { key, buffer in
+                let image = CIImage(cvPixelBuffer: buffer)
+                guard image.extent.width > 0, image.extent.height > 0 else {
+                    return nil
+                }
+                let scale = min(1, CGFloat(SharedVideoPreviewPolicy.maximumImageDimension) /
+                               max(image.extent.width, image.extent.height))
+                let small = image.transformed(
+                    by: CGAffineTransform(scaleX: scale, y: scale))
+                guard let rendered = SharedVideoPreviewHub.context.createCGImage(
+                    small, from: small.extent) else { return nil }
+                return (key, rendered)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.conversionInFlight = false
+                for (key, frame) in images {
+                    // A slide transition may have replaced the preview while
+                    // a frame was being downscaled. Never display stale media.
+                    for entry in self.previews.values {
+                        guard let view = entry.view, view.streamKey == key else { continue }
+                        view.present(frame)
+                    }
+                }
+            }
+        }
+
     }
 }
