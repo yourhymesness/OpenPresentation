@@ -1,6 +1,54 @@
 import AppKit
 import SwiftUI
 
+
+/// Senses a few OS-supported signals without polling raw CPU/GPU percent.
+/// The heavy rendered output stays completely independent. Memory-pressure
+/// notifications are event-driven; no repeated VM statistics are read.
+@MainActor
+private final class ProgramPreviewHealthMonitor: ObservableObject {
+    @Published private(set) var reduced = false
+    @Published private(set) var reason = ""
+    private var governor = ProgramPreviewPerformanceGovernor()
+    private var lastHeartbeat: Date?
+    private var warningFromMemory = false
+    private var memorySource: (any DispatchSourceMemoryPressure)?
+
+    init() {
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.normal, .warning, .critical], queue: .main)
+        memorySource = source
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            let flags = self.memorySource?.data ?? []
+            self.warningFromMemory = flags.contains(.warning) ||
+                flags.contains(.critical)
+        }
+        source.activate()
+    }
+
+    func sample(now: Date, audienceOutputOpen: Bool, visibleVideos: Int) {
+        let interval = lastHeartbeat.map { now.timeIntervalSince($0) } ?? 0.25
+        lastHeartbeat = now
+        let overshoot = interval > 3.0 ? 0 : max(0, interval - 0.25)
+        let thermal = ProcessInfo.processInfo.thermalState
+        governor.sample(at: now, timerOvershoot: overshoot,
+                        audienceOutputOpen: audienceOutputOpen,
+                        visibleVideos: visibleVideos,
+                        memoryPressure: warningFromMemory,
+                        seriousThermalPressure: thermal == .serious ||
+                            thermal == .critical)
+        if reduced != governor.isReduced {
+            reduced = governor.isReduced
+        }
+        if reason != governor.reason {
+            reason = governor.reason
+        }
+    }
+
+    deinit { memorySource?.cancel() }
+}
+
 /// Shared slide clipboard. Unlike the layer clipboard, this holds an entire
 /// authored slide, including notes, collection, timing, background, and media.
 /// Paste gets new slide/layer/group UUIDs from ShowController.
@@ -28,6 +76,7 @@ struct OperatorView: View {
     @AppStorage("liveAppearance") private var liveAppearance = LiveAppearance.system.rawValue
     @AppStorage("liveSlideViewMode") private var liveSlideViewMode = "icons"
     @AppStorage("programPreviewQuality") private var programPreviewQuality = ProgramPreviewQuality.automatic.rawValue
+    @StateObject private var previewHealth = ProgramPreviewHealthMonitor()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var notesEditorTarget: SlideNotesEditorTarget?
     @State private var transitionEditorTarget: SlideTransitionEditorTarget?
@@ -63,7 +112,8 @@ struct OperatorView: View {
 
     private var programPreviewPlaysVideo: Bool {
         previewQuality.playsVideo(visibleVideos: visibleProgramVideoCount,
-                                  audienceOutputOpen: output.isOpen)
+                                  audienceOutputOpen: output.isOpen,
+                                  pressureDetected: previewHealth.reduced)
     }
 
     private var blindBackground: Color { Color(red: 0.035, green: 0.072, blue: 0.14) }
@@ -133,6 +183,12 @@ struct OperatorView: View {
         .animation(.easeInOut(duration: 0.38), value: show.mode)
         // All three navigation paths can change the notes binding while the
         // same TextEditor is mounted. Drop the first responder immediately.
+        .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { now in
+            // One low-cost heartbeat for the operator window. Publishing
+            // occurs only when the degradation state changes, never 4x/sec.
+            previewHealth.sample(now: now, audienceOutputOpen: output.isOpen,
+                                 visibleVideos: visibleProgramVideoCount)
+        }
         .onChange(of: show.canvasSize) { _, nextCanvas in
             output.updateWindowedAspect(for: nextCanvas)
         }
@@ -753,11 +809,13 @@ struct OperatorView: View {
                 }
                 Spacer(minLength: 0)
                 if !programPreviewPlaysVideo && visibleProgramVideoCount > 0 {
-                    Label("VIDEO PREVIEW REDUCED", systemImage: "bolt.fill")
+                    Label("PREVIEW REDUCED", systemImage: "bolt.fill")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.orange)
                         .lineLimit(1)
-                        .help("This Program monitor is using placeholders to spare video decoders. Audience output remains full motion.")
+                        .help(previewQuality == .automatic
+                              ? "Auto reduced video preview due to \(previewHealth.reason). Audience output stays full motion."
+                              : "Manual Low-load: Program uses placeholders. Audience output remains full motion.")
                 }
                 Menu {
                     ForEach(ProgramPreviewQuality.allCases) { quality in
@@ -769,7 +827,7 @@ struct OperatorView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Auto uses a reduced Program video preview when an audience output is open and the slide has 4+ video sources. Full Video always renders all Program videos. Low-load always uses placeholders.")
+                .help("Auto: keep full-motion Program video until interface lag, memory pressure or serious thermal pressure is detected. Restore after 30 seconds of stability. Full Video and Low-load are manual overrides.")
             }
 
             // Fit the active show's aspect ratio into Program's reserved area.

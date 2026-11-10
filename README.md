@@ -1,3 +1,9 @@
+# OpenPresentation v0.4.8 — Adaptive Preview, Not an Arbitrary Video Limit
+
+**Preview: Auto** now keeps **full-motion video even on slides with 8+ videos**, as long as the computer appears responsive. It watches macOS memory-pressure events, serious/critical thermal state, and repeated main-thread heartbeat stalls. If these indicate trouble while an audience output is open, Auto temporarily uses lightweight video placeholders in the **operator Program preview only**; after 30 seconds of stability, it restores the full-motion preview. The badge says why it reduced. Choose **Full Video** to disable automatic reduction or **Low-load** to always prioritize audience playback. The audience video always remains full-motion.
+
+This is a conservative initial signal-based safeguard, **not an accurate hardware video decoder or GPU-load detector**, and it cannot guarantee that a stall will be caught before it occurs. A genuine moving 10–15 fps preview would need its own frame-sampling backend; merely slowing AVPlayer's observer timers does not reduce decoding. Compare Fullscreen-only / Windowed-only / both, and record a short Instruments trace if stalls persist.
+
 # OpenPresentation v0.4.7 — Continuous Audio Meter Gradient & Output Priority
 
 Audio meters now use a **continuous full-height green/yellow/orange/red gradient** revealed by the moving peak level; the bars no longer flip color at fixed thresholds. Pre/Post fader behavior and the short white peak hold are unchanged.

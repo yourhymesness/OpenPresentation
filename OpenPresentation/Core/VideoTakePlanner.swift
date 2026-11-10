@@ -63,15 +63,89 @@ enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    func playsVideo(visibleVideos: Int, audienceOutputOpen: Bool) -> Bool {
+    func playsVideo(visibleVideos: Int, audienceOutputOpen: Bool,
+                    pressureDetected: Bool = false) -> Bool {
         switch self {
         case .fullMotion: return true
         case .lowLoad: return false
         case .automatic:
-            // Keep preview fidelity for ordinary shows. Under an unusually
-            // heavy slide, stop duplicate silent Program decoders to protect
-            // audience playback, while leaving audience renderers untouched.
-            return !audienceOutputOpen || visibleVideos < 4
+            // Video count alone is no longer evidence of overload. Start
+            // full-motion, and shed duplicate Program decoders only when
+            // the performance governor sees sustained pressure.
+            return !audienceOutputOpen || visibleVideos == 0 || !pressureDetected
+        }
+    }
+}
+
+
+/// Pure reactive policy for conserving video decoders on the *operator*
+/// Program monitor. It is intentionally independent of Core Animation and
+/// audience video playback: only observable problems trigger the fallback.
+///
+/// Inputs come from the main-runloop heartbeat, macOS memory pressure events,
+/// and ProcessInfo thermal state. This is a safeguard, not a reliable real-time
+/// hardware decoder utilization monitor. A healthy 8-video slide stays live.
+struct ProgramPreviewPerformanceGovernor {
+    private(set) var isReduced = false
+    private(set) var reason = ""
+    private var lagScore = 0.0
+    private var lastSample: Date?
+    private var healthySince: Date?
+
+    mutating func sample(at now: Date, timerOvershoot: TimeInterval,
+                         audienceOutputOpen: Bool, visibleVideos: Int,
+                         memoryPressure: Bool = false,
+                         seriousThermalPressure: Bool = false) {
+        let vulnerable = audienceOutputOpen && visibleVideos > 0
+        let delta = lastSample.map { max(0, now.timeIntervalSince($0)) } ?? 0.25
+        lastSample = now
+        if !vulnerable {
+            isReduced = false
+            reason = ""
+            lagScore = 0
+            healthySince = nil
+            return
+        }
+
+        // Decay measured main-thread stalls over time. Small scheduling
+        // variations are ignored; two substantial hiccups within several
+        // seconds (or a single severe stall) request reduced preview.
+        lagScore *= pow(0.5, min(10, delta) / 4.0)
+        let overshoot = max(0, timerOvershoot.isFinite ? timerOvershoot : 0)
+        if overshoot > 0.20 {
+            lagScore += 3.2
+        } else if overshoot > 0.075 {
+            lagScore += 1.55
+        }
+        let pressureReason: String? = {
+            if memoryPressure { return "Memory pressure" }
+            if seriousThermalPressure { return "Thermal pressure" }
+            if lagScore >= 2.6 { return "Interface lag" }
+            return nil
+        }()
+        if let pressureReason {
+            healthySince = nil
+            if !isReduced {
+                isReduced = true
+                reason = pressureReason
+            } else if reason != pressureReason {
+                reason = pressureReason
+            }
+            return
+        }
+
+        if isReduced {
+            if healthySince == nil { healthySince = now }
+            // Do not toggle repeatedly on a live show. Allow 30 seconds of
+            // stable UI timing and normal memory/thermal readings first.
+            if let healthySince, now.timeIntervalSince(healthySince) >= 30 {
+                isReduced = false
+                reason = ""
+                lagScore = 0
+                self.healthySince = nil
+            }
+        } else {
+            healthySince = nil
         }
     }
 }

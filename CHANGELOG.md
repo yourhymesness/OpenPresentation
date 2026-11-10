@@ -1,3 +1,12 @@
+## v0.4.8 — Pressure-adaptive Program Preview
+
+- Changed Program Preview Auto from a **video-count threshold** to a performance-sensitive policy. Even heavy slides begin with a full-motion Program preview; Auto reduces only if the operator main-thread heartbeat shows repeated significant stalls (or one severe stall), macOS reports memory pressure, or ProcessInfo reports serious/critical thermal pressure.
+- A simple decaying stall score avoids triggering on ordinary timer jitter. Preview returns to full-motion after 30 seconds of stable observations, with protection against rapid mode thrashing. When no audience output is open, Auto keeps the Program preview fully animated.
+- The reduced-preview badge now explains its **actual cause** (Interface lag, Memory pressure, or Thermal pressure). Full Video and Low-load remain unconditional manual overrides.
+- The app's memory-pressure notifications are event-driven; the 4 Hz operator heartbeat does not increase video decoder or display refresh rates and only publishes UI changes on state transitions.
+- Added pure tests of stable eight-video playback, short hiccups, sustained stalls, recovery, memory/thermal events, manual overrides and output close.
+- **Limits:** These are indirect resource-pressure signals, not direct GPU/VideoToolbox frame-delivery metrics. Local-file AVPlayer access logs are not a reliable frame-drop sensor. This change does not lower preview video FPS; doing so efficiently requires a separate frame-sampling/compositing pipeline. Audience playback is unchanged.
+
 ## v0.4.7 — Smooth meter gradient and Fullscreen output protection
 
 - Replaced the meter's discrete green/yellow/red threshold switching with a **fixed full-height six-stop gradient**. A rising peak bar reveals the green→yellow→orange→red spectrum continuously instead of changing its entire color at a threshold.
