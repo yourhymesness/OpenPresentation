@@ -1,4 +1,10 @@
-# OpenPresentation v0.4.9 Alpha — Moving Shared Video Preview
+# OpenPresentation v0.4.10 Alpha — Fullscreen Rescue and Program-only Rehearsal
+
+**Emergency fullscreen exit:** If you accidentally put Fullscreen Output on the same monitor as the operator, press **⌘⇧F (Command-Shift-F)**. This closes fullscreen audience output and returns to the operator without quitting or clearing the live slide. It also closes Windowed Output if that window was put in macOS fullscreen using the green window button. You can also choose **View → Close Fullscreen Output** when the menu is accessible. **Escape still clears the slide**, as intended.
+
+**Run a show without an audience output:** Leave both **Windowed Output** and **Fullscreen Output** off, switch to **Live**, then click slides or use Next/Previous and Auto as usual. The Program monitor continues to run and displays a **REHEARSAL** indicator. Auto/Shared preview uses full-motion local video when no output window is open. The Program monitor is intentionally **silent** (audio is reserved for audience output).
+
+## Previous: v0.4.9 Alpha — Moving Shared Video Preview
 
 The Program monitor now supports **Shared 12 FPS**: it displays reduced-size frames from the existing audience decoders rather than creating additional Program AVPlayers. Select **Preview: Shared 12 FPS** manually to test. **Auto** still begins full-motion, switching to the moving shared view if sustained interface/memory/thermal pressure is reported; the previous black/placeholder fallback is reserved for manual **Low-load**. If no audience output is open, Shared mode uses native full-motion Program playback. Sources are sampled at 360px maximum size; Fullscreen/Windowed audience video frame rates are unchanged.
 

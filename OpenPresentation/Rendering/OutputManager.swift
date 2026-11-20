@@ -33,6 +33,9 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
     private var escapeKeyMonitor: Any?
 
     var selectedScreen: NSScreen? { screensByID[selectedDisplayID] }
+    var hasFullscreenAudienceWindow: Bool {
+        isFullscreenOpen || windowed?.styleMask.contains(.fullScreen) == true
+    }
 
     func refreshScreens() {
         var screens: [UInt32: NSScreen] = [:]
@@ -144,10 +147,37 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
         uninstallEscapeClearMonitorIfIdle()
     }
 
+    /// Emergency recovery when an audience window covers the operator's only
+    /// screen. Unlike Escape (Clear Slide), Command-Shift-F affects only the
+    /// output windows and leaves the current Program slide running.
+    func exitAudienceFullscreen() {
+        guard hasFullscreenAudienceWindow else { return }
+        let operatorWindow = NSApp.windows.first { window in
+            window !== fullscreen && window !== windowed && window.isVisible &&
+                window.level == .normal && window.styleMask.contains(.titled)
+        }
+        closeFullscreen()
+        // The green title-bar button can put Windowed Output into a native
+        // macOS fullscreen Space. Close that audience window as well so an
+        // operator on one display can always get back to their controls.
+        if windowed?.styleMask.contains(.fullScreen) == true { closeWindowed() }
+        NSApp.activate(ignoringOtherApps: true)
+        operatorWindow?.makeKeyAndOrderFront(nil)
+    }
+
     private func installEscapeClearMonitor(controller: ShowController) {
         guard escapeKeyMonitor == nil else { return }
         escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak controller] event in
-            guard let self, self.isOpen, event.keyCode == 53, !event.isARepeat else { return event }
+            guard let self, self.isOpen, !event.isARepeat else { return event }
+            // A local monitor works even while the screen-saver-level,
+            // borderless audience window obscures the application menus.
+            let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            if self.hasFullscreenAudienceWindow && modifiers == [.command, .shift] &&
+                event.charactersIgnoringModifiers?.lowercased() == "f" {
+                self.exitAudienceFullscreen()
+                return nil
+            }
+            guard event.keyCode == 53 else { return event }
             if NSApp.modalWindow != nil || NSApp.keyWindow?.firstResponder is NSTextView {
                 return event
             }

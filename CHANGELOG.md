@@ -1,3 +1,11 @@
+## v0.4.10-alpha — Fullscreen rescue and Program-only rehearsal
+
+- Added a dedicated **⌘⇧F** recovery shortcut, available while audience output is fullscreen even if it covers the only monitor. It closes the borderless Fullscreen Output, or closes Windowed Output if the latter was put into native macOS fullscreen via its green button, then brings the operator window forward. The live slide and show playback state are preserved; the app is not quit.
+- Added **View → Close Fullscreen Output** and **Presentation → Close Fullscreen Output** actions, with usage guidance in Output settings and Help. A local keyboard event monitor provides fallback when macOS hides or replaces the menu while an always-on-top output is visible.
+- **Escape still clears the live slide**; it deliberately does not exit fullscreen. Windowed and Fullscreen outputs remain independent in their normal toggle buttons.
+- Clarified existing **Program-only rehearsal** support: Live mode, manual slide taking, Next/Previous, and automatic advancement continue with both audience windows closed. The operator now shows a Rehearsal indicator and Program-only status. Auto/Shared preview uses native full-motion video when no audience output is open; Program audio remains muted.
+- Hardware verification is still required for the fullscreen shortcut and native macOS fullscreen Space recovery behavior.
+
 ## v0.4.9-alpha — Live Shared 12 FPS Program preview
 
 - Instead of static placeholders, Auto responds to detected lag by switching only the small Program monitor to moving frames sampled from the active audience's AVPlayerItemVideoOutput. It uses the audience's existing decoded pixel buffers rather than allocating separate AVPlayers in Program.

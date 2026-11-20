@@ -118,6 +118,9 @@ struct OpenPresentationApp: App {
                 Button("Toggle Fullscreen Output") {
                     session.output.toggleFullscreen(controller: session.show)
                 }
+                Button("Close Fullscreen Output") {
+                    session.output.exitAudienceFullscreen()
+                }
             }
         }
 
@@ -299,6 +302,7 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
         static let paste = 6105, delete = 6106, selectAll = 6107
         static let live = 6201, blind = 6202, icons = 6203, list = 6204
         static let windowed = 6205, fullscreen = 6206, operatorFullscreen = 6207
+        static let closeFullscreen = 6208
     }
 
     func attach(show: ShowController, output: OutputManager) {
@@ -401,6 +405,8 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
         menu.addItem(.separator())
         menu.addItem(item("Windowed Output", tag: Tag.windowed, action: #selector(toggleWindowed(_:))))
         menu.addItem(item("Fullscreen Output", tag: Tag.fullscreen, action: #selector(toggleFullscreen(_:))))
+        menu.addItem(item("Close Fullscreen Output", tag: Tag.closeFullscreen,
+                          action: #selector(closeFullscreenRecovery(_:)), key: "f", modifiers: [.command, .shift]))
         menu.addItem(.separator())
         menu.addItem(item("Toggle Operator Full Screen", tag: Tag.operatorFullscreen,
                           action: #selector(toggleOperatorFullscreen(_:)), key: "f", modifiers: [.control, .command]))
@@ -435,6 +441,7 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
         case Tag.delete: return canEditLayers && (editorActions?.hasSelection() ?? false)
         case Tag.selectAll: return text != nil || canEditLayers
         case Tag.fullscreen: return (output?.isFullscreenOpen ?? false) || output?.selectedScreen != nil
+        case Tag.closeFullscreen: return output?.hasFullscreenAudienceWindow ?? false
         default: return true
         }
     }
@@ -494,6 +501,9 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
     }
     @objc private func toggleFullscreen(_ sender: Any?) {
         if let show, let output { output.toggleFullscreen(controller: show) }
+    }
+    @objc private func closeFullscreenRecovery(_ sender: Any?) {
+        output?.exitAudienceFullscreen()
     }
     @objc private func toggleOperatorFullscreen(_ sender: Any?) {
         NSApp.keyWindow?.toggleFullScreen(sender)
@@ -594,6 +604,9 @@ private struct OutputSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Text("If audience fullscreen hides the controls, press ⌘⇧F to close it and return to the operator. Escape clears the slide instead.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(18)
         .onAppear { output.refreshScreens() }
@@ -680,6 +693,9 @@ private struct OpenPresentationHelpView: View {
             Text("Developed by HiTech Productions")
                 .font(.headline)
             Text("OpenPresentation is experimental alpha software, provided AS IS without warranty. It has not been validated for show-critical use. Source code is available under the Apache License 2.0.")
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Fullscreen output covers the operator? Press ⌘⇧F to close it without quitting. Escape still clears the live slide. Live/Program slides and Auto advance also work with both audience outputs closed (silent Program-only rehearsal).")
+                .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Feature suggestions or support:").font(.subheadline.bold())
             Link("william.hymes@hitechproductions.com", destination: URL(string: "mailto:william.hymes@hitechproductions.com")!)

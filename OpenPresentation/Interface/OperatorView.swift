@@ -170,7 +170,9 @@ struct OperatorView: View {
                 Spacer(minLength: 8)
                 Text(output.isWindowedOpen && output.isFullscreenOpen ? "Windowed + Fullscreen active" :
                      output.isWindowedOpen ? "Windowed output active" :
-                     output.isFullscreenOpen ? "Fullscreen output active" : "No output open")
+                     output.isFullscreenOpen ? "Fullscreen output active" :
+                     show.liveSlide != nil ? "Program-only rehearsal · no audience output" :
+                     "Audience outputs closed · Live mode still available")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -406,7 +408,7 @@ struct OperatorView: View {
             .buttonStyle(.plain)
             .modifier(OutputButtonAppearance(isActive: output.isFullscreenOpen))
             .disabled(!output.isFullscreenOpen && output.selectedScreen == nil)
-            .help(output.isFullscreenOpen ? "Close only Fullscreen Output" : "Open Fullscreen Output")
+            .help(output.isFullscreenOpen ? "Close only Fullscreen Output · Emergency shortcut ⌘⇧F" : "Open Fullscreen Output")
         }
         .padding(.horizontal, 17)
         .padding(.vertical, 12)
@@ -803,6 +805,12 @@ struct OperatorView: View {
                 Text("PROGRAM")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
+                if !output.isOpen && !isBlind {
+                    Text("REHEARSAL")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .help("Live slide taking and Auto advance work without audience outputs. Program video preview stays animated in Auto/Full Video modes; audio is muted.")
+                }
                 if show.liveSlide != nil {
                     PulsingProgramBadge(title: show.isBlackout ? "BLACKOUT" : (show.isCleared ? "CLEARED" : "LIVE"),
                                         tint: show.isBlackout ? .red : (show.isCleared ? .gray : .green))
