@@ -10,9 +10,14 @@ import Foundation
                      VideoPlaybackWorkload.observerInterval("windowed"))
         precondition(VideoPlaybackWorkload.observerInterval("windowed") >
                      VideoPlaybackWorkload.observerInterval("fullscreen"))
-        precondition(!VideoPlaybackWorkload.shouldMeter(scope: "program", audible: true))
+        precondition(VideoPlaybackWorkload.shouldMeter(scope: "program", audible: true))
+        precondition(!VideoPlaybackWorkload.shouldMeter(scope: "program", audible: false))
         precondition(!VideoPlaybackWorkload.shouldMeter(scope: "windowed", audible: false))
         precondition(VideoPlaybackWorkload.shouldMeter(scope: "fullscreen", audible: true))
+        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: false, windowedOpen: false) == "program")
+        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: false, windowedOpen: true) == "windowed")
+        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: true, windowedOpen: false) == "fullscreen")
+        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: true, windowedOpen: true) == "fullscreen")
         precondition(!VideoPlaybackWorkload.shouldCorrect(
             follower: "windowed", leader: "program",
             difference: 2, elapsed: 10, bothPlaying: true))
@@ -58,7 +63,7 @@ import Foundation
             visibleVideos: 8, audienceOutputOpen: false))
         precondition(ProgramPreviewQuality.fullMotion.playsVideo(
             visibleVideos: 8, audienceOutputOpen: true))
-        precondition(!ProgramPreviewQuality.lowLoad.playsVideo(
+        precondition(ProgramPreviewQuality.lowLoad.playsVideo(
             visibleVideos: 1, audienceOutputOpen: false))
         var governor = ProgramPreviewPerformanceGovernor()
         let zero = Date(timeIntervalSince1970: 10000)
@@ -94,6 +99,6 @@ import Foundation
                         audienceOutputOpen: true, visibleVideos: 8,
                         seriousThermalPressure: true)
         precondition(governor.isReduced && governor.reason == "Thermal pressure")
-        print("PASS: playback priority, meter gating, adaptive preview, recovery and manual overrides")
+        print("PASS: playback priority, Program-only audio ownership, meter gating, adaptive preview and recovery")
     }
 }

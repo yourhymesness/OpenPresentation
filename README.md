@@ -1,8 +1,14 @@
-# OpenPresentation v0.4.10 Alpha — Fullscreen Rescue and Program-only Rehearsal
+# OpenPresentation v0.4.11 Alpha — Audio for Program-only Rehearsal
+
+**Rehearse with audio, no audience windows required.** With Windowed Output and Fullscreen Output closed, the Program monitor now plays audio from video backgrounds, video layers, and audio-only cues. Volume, mute, master gain, transition fades, and the configured Audio Settings device still apply. When you open an audience output, its audio takes over automatically: **Fullscreen > Windowed > Program**. Other scopes are muted to prevent doubled sound. Low-load preview also returns to full-motion when no audience output is open so video soundtracks are available in rehearsal. The mixer meters include audible Program sources.
+
+This is still alpha; check video/audio looping, fades, cue mixing and output handoff on a Mac before production use.
+
+## Previous: v0.4.10 Alpha — Fullscreen Rescue and Program-only Rehearsal
 
 **Emergency fullscreen exit:** If you accidentally put Fullscreen Output on the same monitor as the operator, press **⌘⇧F (Command-Shift-F)**. This closes fullscreen audience output and returns to the operator without quitting or clearing the live slide. It also closes Windowed Output if that window was put in macOS fullscreen using the green window button. You can also choose **View → Close Fullscreen Output** when the menu is accessible. **Escape still clears the slide**, as intended.
 
-**Run a show without an audience output:** Leave both **Windowed Output** and **Fullscreen Output** off, switch to **Live**, then click slides or use Next/Previous and Auto as usual. The Program monitor continues to run and displays a **REHEARSAL** indicator. Auto/Shared preview uses full-motion local video when no output window is open. The Program monitor is intentionally **silent** (audio is reserved for audience output).
+**Run a show without an audience output:** Leave both **Windowed Output** and **Fullscreen Output** off, switch to **Live**, then click slides or use Next/Previous and Auto as usual. The Program monitor continues to run and displays a **REHEARSAL** indicator. Auto/Shared preview uses full-motion local video when no output window is open. Starting in v0.4.11, this mode also plays audio.
 
 ## Previous: v0.4.9 Alpha — Moving Shared Video Preview
 

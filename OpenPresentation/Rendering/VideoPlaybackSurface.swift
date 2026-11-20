@@ -20,8 +20,8 @@ struct VideoPlaybackSurface: NSViewRepresentable {
     var audioEnabled: Bool = false
     var volume: Double = 1.0
     var contentMode: LayerContentMode = .fill
-    /// Audience and operator monitor have separate decoders. Only Audience
-    /// can emit audio, regardless of the checkbox stored in the slide.
+    /// Audience and operator monitor have separate decoders. Exactly one
+    /// scope may emit audio, and Program owns it only during rehearsal.
     var outputScope: String = "program"
     var sourceSlot: String = "background"
     /// Slide-transition mix level; 1 means unchanged audio.
@@ -171,7 +171,18 @@ final class VideoPlaybackPool {
 
     private var entries: [Key: Entry] = [:]
     private var lastDriftCorrection: [Key: Date] = [:]
+    private(set) var audioOwnerScope = "program"
     private init() {}
+
+    /// Suppress already-playing streams from the previous owner immediately.
+    /// A stale SwiftUI configure pass cannot override this shared audio gate.
+    func setAudioOwnerScope(_ scope: String) {
+        guard audioOwnerScope != scope else { return }
+        audioOwnerScope = scope
+        for (key, entry) in entries {
+            entry.engine.setAudioGateOpen(key.scope == scope)
+        }
+    }
 
     /// Sample an active audience video engine only; never allocate a new
     /// decoder or seek the audience player for Program preview frames.
@@ -208,7 +219,7 @@ final class VideoPlaybackPool {
     func transportStatus(path: String, sessionID: UUID) -> TransportStatus? {
         let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
         // Prefer the audience player if present; otherwise the operator
-        // monitor's muted decoder remains fully controllable for testing.
+        // Program decoder remains fully controllable for rehearsal.
         let candidates = [Key(path: canonical, scope: "fullscreen", sessionID: sessionID),
                           Key(path: canonical, scope: "windowed", sessionID: sessionID),
                           Key(path: canonical, scope: "program", sessionID: sessionID)]
@@ -376,7 +387,9 @@ final class VideoPlaybackNSView: NSView {
     private var pathInUse: String?
     private var endBehavior: VideoEndBehavior = .loop
     private var fadeSeconds: Double = 0.75
-    private var audioIsEnabled = false
+    private var requestedAudioEnabled = false
+    private var audioGateOpen = true
+    private var audioIsEnabled: Bool { requestedAudioEnabled && audioGateOpen }
     private var baseVolume: Float = 1
     private var meterPrimaryID: UUID?
     private var meterStandbyID: UUID?
@@ -385,6 +398,23 @@ final class VideoPlaybackNSView: NSView {
     private var meterNominalVolume: Double = 1
     private var audibleVolume: Float { audioIsEnabled ? baseVolume : 0 }
     private var meterScope: String = "program"
+    func setAudioGateOpen(_ open: Bool) {
+        guard audioGateOpen != open else { return }
+        audioGateOpen = open
+        primary?.isMuted = !audioIsEnabled
+        standby?.isMuted = !audioIsEnabled
+        if !audioIsEnabled {
+            primary?.volume = 0
+            standby?.volume = 0
+        } else {
+            attachMeterIfNeeded()
+            // Periodic callbacks continue driving end fades and soft loops.
+            primary?.volume = audibleVolume
+            if !blendStarted { standby?.volume = 0 }
+        }
+        updateVideoAudioTracks()
+    }
+
     private func updateVideoAudioTracks() {
         for player in [primary, standby].compactMap({ $0 }) {
             let items: [AVPlayerItem] = (player as? AVQueuePlayer)?.items()
@@ -558,7 +588,8 @@ final class VideoPlaybackNSView: NSView {
 
         let requiresRestart = pathInUse != path || endBehavior != behavior || primary == nil
         fadeSeconds = adjustedFade
-        audioIsEnabled = audioEnabled
+        requestedAudioEnabled = audioEnabled
+        audioGateOpen = meterScope == VideoPlaybackPool.shared.audioOwnerScope
         baseVolume = adjustedVolume
         meterPreFaderGain = preFaderGain
         meterFaderGain = faderGain

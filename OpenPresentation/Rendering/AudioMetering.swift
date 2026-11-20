@@ -237,7 +237,8 @@ final class LiveAudioMeters: ObservableObject {
                 let signal = tap.drain()
                 guard !signal.isSilent,
                       !player.isMuted, player.rate > 0,
-                      source.scope == "fullscreen" || source.scope == "windowed" else { continue }
+                      source.scope == "fullscreen" || source.scope == "windowed" ||
+                          source.scope == "program" else { continue }
                 let currentGain = max(0, Double(player.volume))
                 let envelope = source.nominalPlayerGain > 0.00001
                     ? min(1, currentGain / source.nominalPlayerGain)

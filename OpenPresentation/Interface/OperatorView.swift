@@ -171,7 +171,7 @@ struct OperatorView: View {
                 Text(output.isWindowedOpen && output.isFullscreenOpen ? "Windowed + Fullscreen active" :
                      output.isWindowedOpen ? "Windowed output active" :
                      output.isFullscreenOpen ? "Fullscreen output active" :
-                     show.liveSlide != nil ? "Program-only rehearsal · no audience output" :
+                     show.liveSlide != nil ? "Program-only rehearsal · audio available" :
                      "Audience outputs closed · Live mode still available")
             }
             .font(.caption)
@@ -806,10 +806,10 @@ struct OperatorView: View {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
                 if !output.isOpen && !isBlind {
-                    Text("REHEARSAL")
+                    Text("REHEARSAL · AUDIO")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
-                        .help("Live slide taking and Auto advance work without audience outputs. Program video preview stays animated in Auto/Full Video modes; audio is muted.")
+                        .help("Live and Auto work without audience outputs. The Program monitor plays video and audio through your selected Audio output device, respecting show mute and fader settings.")
                 }
                 if show.liveSlide != nil {
                     PulsingProgramBadge(title: show.isBlackout ? "BLACKOUT" : (show.isCleared ? "CLEARED" : "LIVE"),
@@ -848,6 +848,7 @@ struct OperatorView: View {
                 let width = min(area.size.width, area.size.height * ratio)
                 let height = width / ratio
                 ProgramCanvas(controller: show,
+                              allowsAudio: output.audioOwnerScope == "program",
                               videoDecodingEnabled: programPreviewRenderMode == .native,
                               sharedVideoPreview: programPreviewRenderMode == .sharedFrames)
                     .transaction { $0.disablesAnimations = true }

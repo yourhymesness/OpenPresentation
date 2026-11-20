@@ -68,8 +68,8 @@ struct SlideCanvas: View {
     // editor and Preview display a placeholder so they don't consume players.
     var playsVideo: Bool = false
     var sharedVideoPreview: Bool = false
-    // Only the actual Audience Output window may emit audio; the small
-    // Program monitor never does, preventing duplicate sound on one Mac.
+    // Exactly one scope emits audio: Fullscreen > Windowed > Program-only
+    // rehearsal. All other previews must stay silent.
     var allowsVideoAudio: Bool = false
     /// Unique renderer scope so multiple simultaneous output windows never steal AVPlayerLayers.
     var outputScope: String = "program"
@@ -395,7 +395,7 @@ struct ProgramCanvas: View {
     @ObservedObject var controller: ShowController
     var scaleMode: OutputScaleMode = .fit
     var constrainToCanvas: Bool = true
-    var isAudienceOutput: Bool = false
+    var allowsAudio: Bool = false
     var outputScope: String = "program"
     /// Allows reducing duplicate Program preview decoding under heavy loads.
     /// The actual audience canvases always retain full video playback.
@@ -446,7 +446,7 @@ struct ProgramCanvas: View {
                                     // Shared video is already drawn under this overlay.
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                    allowsVideoAudio: isAudienceOutput,
+                                    allowsVideoAudio: allowsAudio,
                                     outputScope: outputScope,
                                     cueAudioGainOverride: (transition.from.slide?.resolvedCueAudioGain ?? 1) * (1 - transition.progress(at: timeline.date))
                                         + (transition.to.slide?.resolvedCueAudioGain ?? 1) * transition.progress(at: timeline.date),
@@ -467,7 +467,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                    allowsVideoAudio: isAudienceOutput,
+                                    allowsVideoAudio: allowsAudio,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
                                     continuingVideoPaths: continuing,
@@ -481,7 +481,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                    allowsVideoAudio: isAudienceOutput,
+                                    allowsVideoAudio: allowsAudio,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
                                     continuingVideoPaths: continuing,
@@ -496,7 +496,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                    allowsVideoAudio: isAudienceOutput,
+                                    allowsVideoAudio: allowsAudio,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
                                     continuingVideoPaths: continuing,
@@ -511,7 +511,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                    allowsVideoAudio: isAudienceOutput,
+                                    allowsVideoAudio: allowsAudio,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
                                     continuingVideoPaths: continuing,
@@ -528,7 +528,7 @@ struct ProgramCanvas: View {
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                allowsVideoAudio: isAudienceOutput,
+                                allowsVideoAudio: allowsAudio,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.old,
                                 continuingVideoPaths: continuing,
@@ -544,7 +544,7 @@ struct ProgramCanvas: View {
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                allowsVideoAudio: isAudienceOutput,
+                                allowsVideoAudio: allowsAudio,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.new,
                                 continuingVideoPaths: continuing,
@@ -562,7 +562,7 @@ struct ProgramCanvas: View {
                                 showTransparencyOnBlack: true,
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
-                                allowsVideoAudio: isAudienceOutput,
+                                allowsVideoAudio: allowsAudio,
                                 outputScope: outputScope,
                                 videoSessions: controller.liveVideoSessions)
                 }

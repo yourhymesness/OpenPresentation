@@ -650,7 +650,7 @@ private struct AudioSettingsView: View {
                     .foregroundStyle(.orange)
                     .font(.caption)
             }
-            Text("Video audio routes only from the active audience output. The Program monitor stays muted. Changing devices during playback may cause a brief interruption.")
+            Text("Audio plays from Fullscreen Output first, then Windowed Output. With both closed, Program-only rehearsal plays sound through this device. Only one output is audible at once. Changing devices during playback may cause a brief interruption.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -694,7 +694,7 @@ private struct OpenPresentationHelpView: View {
                 .font(.headline)
             Text("OpenPresentation is experimental alpha software, provided AS IS without warranty. It has not been validated for show-critical use. Source code is available under the Apache License 2.0.")
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Fullscreen output covers the operator? Press ⌘⇧F to close it without quitting. Escape still clears the live slide. Live/Program slides and Auto advance also work with both audience outputs closed (silent Program-only rehearsal).")
+            Text("Fullscreen output covers the operator? Press ⌘⇧F to close it without quitting. Escape still clears the live slide. Live slides and Auto advance also work with both audience outputs closed; Program-only rehearsal now plays audio through the configured output device.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Feature suggestions or support:").font(.subheadline.bold())

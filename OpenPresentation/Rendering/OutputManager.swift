@@ -33,6 +33,20 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
     private var escapeKeyMonitor: Any?
 
     var selectedScreen: NSScreen? { screensByID[selectedDisplayID] }
+    var audioOwnerScope: String {
+        ProgramAudioOwnership.ownerScope(fullscreenOpen: isFullscreenOpen,
+                                         windowedOpen: isWindowedOpen)
+    }
+
+    /// Mute the previous owner synchronously before SwiftUI mounts a newly
+    /// audible output decoder. This prevents short bursts of doubled audio
+    /// while opening/closing windows or switching their priority.
+    private func refreshAudioOwner() {
+        let scope = audioOwnerScope
+        VideoPlaybackPool.shared.setAudioOwnerScope(scope)
+        AudioPlaybackPool.shared.setAudioOwnerScope(scope)
+    }
+
     var hasFullscreenAudienceWindow: Bool {
         isFullscreenOpen || windowed?.styleMask.contains(.fullScreen) == true
     }
@@ -91,6 +105,7 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
         window.delegate = self
         fullscreen = window
         isFullscreenOpen = true
+        refreshAudioOwner()
         window.orderFrontRegardless()
         installEscapeClearMonitor(controller: controller)
     }
@@ -125,6 +140,7 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
         window.delegate = self
         windowed = window
         isWindowedOpen = true
+        refreshAudioOwner()
         installEscapeClearMonitor(controller: controller)
         window.makeKeyAndOrderFront(nil)
     }
@@ -135,6 +151,7 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
         window.close()
         windowed = nil
         isWindowedOpen = false
+        refreshAudioOwner()
         uninstallEscapeClearMonitorIfIdle()
     }
 
@@ -144,6 +161,7 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
         window.close()
         fullscreen = nil
         isFullscreenOpen = false
+        refreshAudioOwner()
         uninstallEscapeClearMonitorIfIdle()
     }
 
@@ -211,6 +229,7 @@ final class OutputManager: NSObject, ObservableObject, NSWindowDelegate {
                 self.fullscreen = nil
                 self.isFullscreenOpen = false
             }
+            self.refreshAudioOwner()
             self.uninstallEscapeClearMonitorIfIdle()
         }
     }
@@ -222,16 +241,16 @@ private struct AudienceOutputView: View {
     let scope: String
 
     private var ownsAudio: Bool {
-        // One and only one output emits program audio; fullscreen wins when
-        // both are open. The operator Program monitor is always silent.
-        scope == "fullscreen" || !output.isFullscreenOpen
+        // The Program monitor takes audio ownership when no audience output
+        // is open. Fullscreen wins over Windowed when both are running.
+        scope == output.audioOwnerScope
     }
 
     var body: some View {
         ZStack {
             Color.black
             ProgramCanvas(controller: controller, scaleMode: output.scaleMode,
-                          constrainToCanvas: false, isAudienceOutput: ownsAudio,
+                          constrainToCanvas: false, allowsAudio: ownsAudio,
                           outputScope: scope)
         }
         .ignoresSafeArea()

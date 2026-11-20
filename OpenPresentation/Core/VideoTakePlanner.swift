@@ -55,7 +55,7 @@ enum VideoTakePlanner {
 
 /// Pure scheduling rules: visual playback always stays at the source frame
 /// rate (AVPlayerLayer), while lightweight end/loop observers may poll slower.
-/// Fullscreen is authoritative, then Windowed, then the silent Program monitor.
+/// Fullscreen is authoritative, then Windowed, then the Program monitor.
 enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
     case automatic = "Auto"
     case fullMotion = "Full Video"
@@ -68,7 +68,9 @@ enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
                     pressureDetected: Bool = false) -> ProgramPreviewRenderMode {
         switch self {
         case .fullMotion: return .native
-        case .lowLoad: return .placeholder
+        // When the Program monitor is the only show display, it must be a
+        // playable rehearsal surface, including soundtrack audio from video.
+        case .lowLoad: return audienceOutputOpen ? .placeholder : .native
         case .sharedFrames: return audienceOutputOpen ? .sharedFrames : .native
         case .automatic:
             return audienceOutputOpen && visibleVideos > 0 && pressureDetected
@@ -92,6 +94,16 @@ enum ProgramPreviewRenderMode {
 enum SharedVideoPreviewPolicy {
     static let framesPerSecond: Double = 12
     static let maximumImageDimension: Double = 360
+}
+
+/// Exactly one playback scope owns the show's audible audio at a time.
+/// Program is the fallback owner when neither audience window is running.
+enum ProgramAudioOwnership {
+    static func ownerScope(fullscreenOpen: Bool, windowedOpen: Bool) -> String {
+        if fullscreenOpen { return "fullscreen" }
+        if windowedOpen { return "windowed" }
+        return "program"
+    }
 }
 
 
@@ -196,7 +208,7 @@ enum VideoPlaybackWorkload {
     }
 
     static func shouldMeter(scope: String, audible: Bool) -> Bool {
-        audible && (scope == "fullscreen" || scope == "windowed")
+        audible && (scope == "fullscreen" || scope == "windowed" || scope == "program")
     }
 
     static func shouldCorrect(follower: String, leader: String,

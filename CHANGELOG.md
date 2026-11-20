@@ -1,9 +1,17 @@
+## v0.4.11-alpha — Audible Program-only rehearsal
+
+- When no audience output is open, the Program monitor now plays sound from video backgrounds, video layers and audio-only cue layers. Existing mute, cue/master fader gains, output device routing, transitions and loops remain in effect.
+- Centralized single-audio-owner priority: **Fullscreen > Windowed > Program**. Both video and audio-only player pools immediately mute the previous owner before a new scope becomes audible; late view updates cannot re-enable an inactive scope.
+- Program audio meters now include audible local video decoders and audio-only players. Program remains silent automatically when either audience output is active.
+- Manual Low-load preview uses native full video when the Program monitor is the *only* show display, so video soundtracks are not inadvertently disabled in rehearsal. Low-load still reduces video previews when audience output is active.
+- Added model checks for all combinations of audio ownership, Program meter gating and preview behavior without audience outputs. Actual audio-device handoff, looping, video fades and meters still require hardware testing.
+
 ## v0.4.10-alpha — Fullscreen rescue and Program-only rehearsal
 
 - Added a dedicated **⌘⇧F** recovery shortcut, available while audience output is fullscreen even if it covers the only monitor. It closes the borderless Fullscreen Output, or closes Windowed Output if the latter was put into native macOS fullscreen via its green button, then brings the operator window forward. The live slide and show playback state are preserved; the app is not quit.
 - Added **View → Close Fullscreen Output** and **Presentation → Close Fullscreen Output** actions, with usage guidance in Output settings and Help. A local keyboard event monitor provides fallback when macOS hides or replaces the menu while an always-on-top output is visible.
 - **Escape still clears the live slide**; it deliberately does not exit fullscreen. Windowed and Fullscreen outputs remain independent in their normal toggle buttons.
-- Clarified existing **Program-only rehearsal** support: Live mode, manual slide taking, Next/Previous, and automatic advancement continue with both audience windows closed. The operator now shows a Rehearsal indicator and Program-only status. Auto/Shared preview uses native full-motion video when no audience output is open; Program audio remains muted.
+- Clarified existing **Program-only rehearsal** support: Live mode, manual slide taking, Next/Previous, and automatic advancement continue with both audience windows closed. The operator now shows a Rehearsal indicator and Program-only status. Auto/Shared preview uses native full-motion video when no audience output is open. This release's Program audio was still muted; v0.4.11 adds audio.
 - Hardware verification is still required for the fullscreen shortcut and native macOS fullscreen Space recovery behavior.
 
 ## v0.4.9-alpha — Live Shared 12 FPS Program preview

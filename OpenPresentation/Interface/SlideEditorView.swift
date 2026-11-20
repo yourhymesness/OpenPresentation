@@ -1078,7 +1078,7 @@ struct SlideEditorView: View {
                     .font(.caption2.monospacedDigit())
             }
         }
-        Text("Audio is emitted only from the Audience output, using the device selected in OpenPresentation → Settings → Audio. Program monitor stays muted.")
+        Text("Audio plays from the active audience output, or from the Program monitor when both outputs are closed. It uses the device selected in OpenPresentation → Settings → Audio; other scopes stay muted.")
             .font(.caption2)
             .foregroundStyle(.secondary)
     }

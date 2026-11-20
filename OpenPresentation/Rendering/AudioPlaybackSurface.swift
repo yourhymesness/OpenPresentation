@@ -2,8 +2,9 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-/// A silent visual placeholder for a sound-only layer. Every physical output
-/// gets its own player, but only the designated audience output is audible.
+/// A silent visual placeholder for a sound-only layer. Each output scope
+/// gets its own player, but only the designated owner is audible; Program
+/// takes ownership when both audience outputs are closed.
 /// Distinct audio files can play concurrently and mix through Core Audio.
 struct AudioPlaybackSurface: NSViewRepresentable {
     @ObservedObject var liveAudioMix = LiveAudioMix.shared
@@ -102,7 +103,19 @@ final class AudioPlaybackPool {
 
     static let shared = AudioPlaybackPool()
     private var entries: [Key: Entry] = [:]
+    private var audioOwnerScope = "program"
     private init() {}
+
+    func setAudioOwnerScope(_ scope: String) {
+        guard audioOwnerScope != scope else { return }
+        audioOwnerScope = scope
+        // Mute the previous owner's live players *before* new output views
+        // are attached. This is also enforced during every configure call.
+        for (key, entry) in entries where key.scope != scope {
+            entry.player.isMuted = true
+            entry.player.volume = 0
+        }
+    }
 
     func attach(_ key: Key, hostID: UUID, loops: Bool) {
         guard FileManager.default.fileExists(atPath: key.path) else { return }
@@ -128,7 +141,7 @@ final class AudioPlaybackPool {
     func configure(_ key: Key, audible: Bool, volume: Double,
                    preFaderGain: Double, faderGain: Double) {
         guard let entry = entries[key] else { return }
-        if !audible {
+        if !audible || key.scope != audioOwnerScope {
             entry.player.isMuted = true
             entry.player.volume = 0
         } else {
