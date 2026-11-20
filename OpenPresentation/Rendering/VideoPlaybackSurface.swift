@@ -127,6 +127,7 @@ final class VideoPlaybackHostView: NSView {
 /// Separate audience/operator scopes avoid double audio and competing layers.
 /// A detached decoder pauses immediately; a same-media slide can resume it
 /// without resetting its playhead during the brief handoff window.
+@MainActor
 final class VideoPlaybackPool {
     struct Key: Hashable {
         let path: String

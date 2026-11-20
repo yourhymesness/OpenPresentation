@@ -126,15 +126,20 @@ final class AudioPlaybackPool {
                 timeObserver = player.addPeriodicTimeObserver(
                     forInterval: CMTime(seconds: 0.05, preferredTimescale: 600), queue: .main
                 ) { [weak self] time in
-                    guard let self, time.isNumeric else { return }
-                    let duration = self.player.currentItem?.duration.seconds ?? 0
-                    guard duration.isFinite && duration > 0 else { return }
-                    let effective = min(max(fadeDuration, 0.2), duration * 0.4)
-                    let remaining = max(0, duration - time.seconds)
-                    let fade = max(0, min(1, remaining / max(0.01, effective)))
-                    if abs(self.endFadeGain - fade) > 0.005 {
-                        self.endFadeGain = fade
-                        self.onFadeChanged?()
+                    // AVFoundation's callback is @Sendable even with queue: .main.
+                    // The explicit main-actor hop keeps Entry and its UI mix
+                    // state isolated while retaining frame-accurate fades.
+                    MainActor.assumeIsolated {
+                        guard let self, time.isNumeric else { return }
+                        let duration = self.player.currentItem?.duration.seconds ?? 0
+                        guard duration.isFinite && duration > 0 else { return }
+                        let effective = min(max(fadeDuration, 0.2), duration * 0.4)
+                        let remaining = max(0, duration - time.seconds)
+                        let fade = max(0, min(1, remaining / max(0.01, effective)))
+                        if abs(self.endFadeGain - fade) > 0.005 {
+                            self.endFadeGain = fade
+                            self.onFadeChanged?()
+                        }
                     }
                 }
             }
