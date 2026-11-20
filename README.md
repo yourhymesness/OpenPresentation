@@ -1,4 +1,8 @@
-# OpenPresentation v0.4.11 Alpha — Audio for Program-only Rehearsal
+# OpenPresentation v0.4.12 Alpha — Audio Handoff and Meter Recovery
+
+**Opening or closing outputs while a slide is already playing:** Audio-only cues now share one retained AVPlayer and PCM meter tap across Program, Windowed and Fullscreen views, so changing windows does not restart them. Video decoders still render independently on each output, but new decoders stay muted until they have sought to the running slide's current playhead. PCM meter taps stay attached across audio-owner changes, and temporary output priority changes no longer disable authored audio tracks. Playback handoff can involve a short mute while the new decoder seeks; it should not replay the start of the soundtrack. Test this on macOS hardware with loops, fades and eight-video slides before live use.
+
+## Previous: v0.4.11 Alpha — Audio for Program-only Rehearsal
 
 **Rehearse with audio, no audience windows required.** With Windowed Output and Fullscreen Output closed, the Program monitor now plays audio from video backgrounds, video layers, and audio-only cues. Volume, mute, master gain, transition fades, and the configured Audio Settings device still apply. When you open an audience output, its audio takes over automatically: **Fullscreen > Windowed > Program**. Other scopes are muted to prevent doubled sound. Low-load preview also returns to full-motion when no audience output is open so video soundtracks are available in rehearsal. The mixer meters include audible Program sources.
 

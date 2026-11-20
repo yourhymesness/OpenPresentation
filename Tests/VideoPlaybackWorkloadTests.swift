@@ -18,6 +18,10 @@ import Foundation
         precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: false, windowedOpen: true) == "windowed")
         precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: true, windowedOpen: false) == "fullscreen")
         precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: true, windowedOpen: true) == "fullscreen")
+        precondition(VideoAudioHandoffPolicy.needsAlignment(followerElapsed: 0, leaderElapsed: 18))
+        precondition(!VideoAudioHandoffPolicy.needsAlignment(followerElapsed: 17.95, leaderElapsed: 18))
+        precondition(!VideoAudioHandoffPolicy.needsAlignment(followerElapsed: 0, leaderElapsed: 0.01))
+        precondition(!VideoAudioHandoffPolicy.needsAlignment(followerElapsed: 0, leaderElapsed: .nan))
         precondition(!VideoPlaybackWorkload.shouldCorrect(
             follower: "windowed", leader: "program",
             difference: 2, elapsed: 10, bothPlaying: true))

@@ -1,3 +1,11 @@
+## v0.4.12-alpha — Mid-slide audio handoff and stable meters
+
+- Fixed audio-only cue restarts by sharing one retained AVPlayer per media take (path + session), regardless of which output windows are open. Output views only contribute their mix request; the same audio stream, loop queue and PCM meter tap survive window handoffs.
+- Fixed newly opened video outputs audibly restarting from zero: they now begin with audio muted while seeking to the running playback position, and unmute after the initial seek completes. A cancelled seek gets one retry. Regular drift correction skips outputs during this initial alignment.
+- When a Program video view is detached to enter Shared 12 FPS or Low-load preview as an audience output opens, the new output can still use the retained Program decoder's last playhead during its two-second grace period.
+- Video audio tracks are no longer toggled off merely because a different output owns the sound. Audio-authoring settings still disable tracks when explicitly unchecked. PCM taps are installed before playback starts so changing output ownership does not disrupt the meter stream.
+- Added model coverage for alignment decisions at mid-slide, at the beginning of a slide, and with invalid timestamps. Actual AVFoundation seek timing and audio-meter handoff still require hands-on macOS testing.
+
 ## v0.4.11-alpha — Audible Program-only rehearsal
 
 - When no audience output is open, the Program monitor now plays sound from video backgrounds, video layers and audio-only cue layers. Existing mute, cue/master fader gains, output device routing, transitions and loops remain in effect.

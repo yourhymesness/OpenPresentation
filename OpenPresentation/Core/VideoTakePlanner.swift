@@ -106,6 +106,15 @@ enum ProgramAudioOwnership {
     }
 }
 
+/// A new output created mid-slide needs a seek before it may become audible.
+/// At the beginning of a take, both players can safely start at zero.
+enum VideoAudioHandoffPolicy {
+    static func needsAlignment(followerElapsed: Double, leaderElapsed: Double) -> Bool {
+        leaderElapsed.isFinite && followerElapsed.isFinite &&
+            leaderElapsed > 0.08 && abs(leaderElapsed - followerElapsed) > 0.12
+    }
+}
+
 
 
 /// Pure reactive policy for conserving video decoders on the *operator*

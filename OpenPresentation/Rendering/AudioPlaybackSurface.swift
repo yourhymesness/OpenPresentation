@@ -2,9 +2,9 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-/// A silent visual placeholder for a sound-only layer. Each output scope
-/// gets its own player, but only the designated owner is audible; Program
-/// takes ownership when both audience outputs are closed.
+/// A silent visual placeholder for a sound-only layer. All output hosts for
+/// one take share the same retained audio player, so changing output windows
+/// cannot restart its sound or replace its PCM meter tap.
 /// Distinct audio files can play concurrently and mix through Core Audio.
 struct AudioPlaybackSurface: NSViewRepresentable {
     @ObservedObject var liveAudioMix = LiveAudioMix.shared
@@ -43,16 +43,17 @@ final class AudioPlaybackHostView: NSView {
                    volume: Double, preFaderGain: Double, faderGain: Double,
                    loops: Bool) {
         let next = AudioPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
-                                         scope: scope, sessionID: session)
+                                         sessionID: session)
         let newlyAttached = key != next
         if newlyAttached {
             unbind()
             key = next
-            AudioPlaybackPool.shared.attach(next, hostID: hostID, loops: loops)
+            AudioPlaybackPool.shared.attach(next, hostID: hostID, scope: scope, loops: loops)
         }
-        AudioPlaybackPool.shared.configure(next, audible: audible, volume: volume,
+        AudioPlaybackPool.shared.configure(next, hostID: hostID, scope: scope,
+                                           audible: audible, volume: volume,
                                            preFaderGain: preFaderGain, faderGain: faderGain)
-        if newlyAttached { AudioPlaybackPool.shared.resume(next) }
+        if newlyAttached { AudioPlaybackPool.shared.resume(next, hostID: hostID) }
     }
 
     func unbind() {
@@ -61,14 +62,22 @@ final class AudioPlaybackHostView: NSView {
     }
 }
 
-/// Audio is retained outside ephemeral SwiftUI slide views. A change from one
-/// slide to another using the same audio path keeps its playing position.
+/// Audio is retained outside ephemeral SwiftUI slide views. Every output
+/// shares one player per media take; only the active output's mix request is
+/// applied. Metering and the AVPlayerLooper survive output window changes.
 @MainActor
 final class AudioPlaybackPool {
     struct Key: Hashable {
         let path: String
-        let scope: String
         let sessionID: UUID
+    }
+
+    private struct HostMix {
+        let scope: String
+        let audible: Bool
+        let volume: Double
+        let preFaderGain: Double
+        let faderGain: Double
     }
 
     @MainActor
@@ -76,23 +85,23 @@ final class AudioPlaybackPool {
         let player: AVPlayer
         let looper: AVPlayerLooper?
         let meterID: UUID?
-        var hosts = Set<UUID>()
+        var hosts: [UUID: HostMix] = [:]
         var evictionGeneration = 0
 
-        init(path: String, scope: String, loops: Bool) {
+        init(path: String, loops: Bool) {
             let url = URL(fileURLWithPath: path)
             let item = AVPlayerItem(url: url)
             if loops {
                 let queue = AVQueuePlayer()
                 queue.actionAtItemEnd = .advance
                 self.player = queue
-                self.meterID = LiveAudioMeters.shared.attach(item: item, to: queue, scope: scope)
+                self.meterID = LiveAudioMeters.shared.attach(item: item, to: queue, scope: "program")
                 self.looper = AVPlayerLooper(player: queue, templateItem: item)
             } else {
                 let oneShot = AVPlayer(playerItem: item)
                 oneShot.actionAtItemEnd = .pause
                 self.player = oneShot
-                self.meterID = LiveAudioMeters.shared.attach(item: item, to: oneShot, scope: scope)
+                self.meterID = LiveAudioMeters.shared.attach(item: item, to: oneShot, scope: "program")
                 self.looper = nil
             }
             AudioOutputRouting.apply(to: player)
@@ -109,58 +118,62 @@ final class AudioPlaybackPool {
     func setAudioOwnerScope(_ scope: String) {
         guard audioOwnerScope != scope else { return }
         audioOwnerScope = scope
-        // Mute the previous owner's live players *before* new output views
-        // are attached. This is also enforced during every configure call.
-        for (key, entry) in entries where key.scope != scope {
-            entry.player.isMuted = true
-            entry.player.volume = 0
+        // Only change who may control the retained player; never recreate
+        // or seek the stream when an audience window opens or closes.
+        for entry in entries.values {
+            applyOwnerMix(to: entry)
         }
     }
 
-    func attach(_ key: Key, hostID: UUID, loops: Bool) {
+    func attach(_ key: Key, hostID: UUID, scope: String, loops: Bool) {
         guard FileManager.default.fileExists(atPath: key.path) else { return }
         let entry: Entry
         if let existing = entries[key] {
             entry = existing
         } else {
-            entry = Entry(path: key.path, scope: key.scope, loops: loops)
+            entry = Entry(path: key.path, loops: loops)
             entries[key] = entry
-            // On another monitor, follow the same position where possible.
-            if let master = entries.first(where: { $0.key != key &&
-                $0.key.path == key.path && $0.key.sessionID == key.sessionID &&
-                !$0.value.hosts.isEmpty })?.value {
-                let time = master.player.currentTime()
-                if time.isNumeric && CMTimeGetSeconds(time) > 0.1 { entry.player.seek(to: time) }
-            }
         }
         entry.evictionGeneration += 1
-        entry.hosts.insert(hostID)
+        entry.hosts[hostID] = HostMix(scope: scope, audible: false, volume: 0,
+                                      preFaderGain: 1, faderGain: 1)
         // The host resumes playback after the new audio state is installed.
     }
 
-    func configure(_ key: Key, audible: Bool, volume: Double,
+    func configure(_ key: Key, hostID: UUID, scope: String, audible: Bool, volume: Double,
                    preFaderGain: Double, faderGain: Double) {
-        guard let entry = entries[key] else { return }
-        if !audible || key.scope != audioOwnerScope {
-            entry.player.isMuted = true
-            entry.player.volume = 0
-        } else {
-            entry.player.volume = Float(max(0, min(volume, 1)))
-            entry.player.isMuted = false
-        }
-        LiveAudioMeters.shared.configure(entry.meterID,
-                                         preFaderGain: preFaderGain, faderGain: faderGain,
-                                         nominalPlayerGain: volume)
+        guard let entry = entries[key], entry.hosts[hostID] != nil else { return }
+        entry.hosts[hostID] = HostMix(scope: scope, audible: audible, volume: volume,
+                                      preFaderGain: preFaderGain, faderGain: faderGain)
+        applyOwnerMix(to: entry)
     }
 
-    func resume(_ key: Key) {
-        guard let entry = entries[key] else { return }
+    private func applyOwnerMix(to entry: Entry) {
+        // Transition canvases may briefly mount two hosts for the same take.
+        // Use the stronger current-owner request, never an inactive scope.
+        guard let mix = entry.hosts.values.filter({ $0.scope == audioOwnerScope && $0.audible })
+            .max(by: { $0.volume < $1.volume }) else {
+            entry.player.isMuted = true
+            entry.player.volume = 0
+            return
+        }
+        entry.player.volume = Float(max(0, min(mix.volume, 1)))
+        entry.player.isMuted = false
+        LiveAudioMeters.shared.configure(entry.meterID,
+                                         preFaderGain: mix.preFaderGain, faderGain: mix.faderGain,
+                                         nominalPlayerGain: mix.volume)
+    }
+
+    func resume(_ key: Key, hostID: UUID) {
+        guard let entry = entries[key], entry.hosts.count == 1,
+              entry.hosts[hostID] != nil else { return }
         entry.player.play()
     }
 
     func detach(_ key: Key, hostID: UUID) {
         guard let entry = entries[key] else { return }
-        entry.hosts.remove(hostID)
+        entry.hosts.removeValue(forKey: hostID)
+        applyOwnerMix(to: entry)
         guard entry.hosts.isEmpty else { return }
         entry.player.pause()
         entry.evictionGeneration += 1

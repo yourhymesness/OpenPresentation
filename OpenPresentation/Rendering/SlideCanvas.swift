@@ -267,7 +267,10 @@ struct SlideCanvas: View {
             VideoPlaybackSurface(path: path,
                                  playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
                                  behavior: behavior, fadeDuration: fade,
-                                 audioEnabled: audible && allowsVideoAudio,
+                                 // Keep authored audio tracks alive across
+                                 // window handoffs; the retained player pool
+                                 // is the single source of audio ownership.
+                                 audioEnabled: audible,
                                  volume: volume, contentMode: contentMode,
                                  outputScope: outputScope, sourceSlot: sourceSlot,
                                  audioGain: cueAudioGain * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
