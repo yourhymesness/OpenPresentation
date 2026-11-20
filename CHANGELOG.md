@@ -1,3 +1,11 @@
+## v0.4.13-alpha — Persistent soundtrack independent of video outputs
+
+- Replaced per-window audio ownership with one operator-owned Program audio bus. All visual AVPlayerLayer engines are silent and may open, close, remount, or change preview quality without starting/stopping audio players.
+- The audio bus derives media takes directly from the immutable live Program snapshot and active transition, including video backgrounds, audio-enabled video layers and standalone audio cues. It merges continuing session IDs into one stream across slide transitions and preserves authored cue/master gains and mute.
+- Audio-only AVPlayers and PCM meter taps now have persistent identities keyed by source path, take session and layer slot. Output window changes no longer recreate these objects or alter their playback position.
+- Visual video output alignment prefers the continuous soundtrack's playback clock, with retained visual decoders as fallback for videos without sound. Video transport Play/Pause and Seek now control the audio bus too.
+- Added a sound-only end-fade envelope for Fade Out and Fade To Black video behaviors. Video Soft Loop now uses a standard audio looper; an overlapping dual-player *audio* crossfade is future work. This is alpha and requires timing, fade and audio-device tests on macOS.
+
 ## v0.4.12-alpha — Mid-slide audio handoff and stable meters
 
 - Fixed audio-only cue restarts by sharing one retained AVPlayer per media take (path + session), regardless of which output windows are open. Output views only contribute their mix request; the same audio stream, loop queue and PCM meter tap survive window handoffs.

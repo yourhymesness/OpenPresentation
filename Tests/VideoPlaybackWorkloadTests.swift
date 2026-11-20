@@ -14,10 +14,24 @@ import Foundation
         precondition(!VideoPlaybackWorkload.shouldMeter(scope: "program", audible: false))
         precondition(!VideoPlaybackWorkload.shouldMeter(scope: "windowed", audible: false))
         precondition(VideoPlaybackWorkload.shouldMeter(scope: "fullscreen", audible: true))
-        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: false, windowedOpen: false) == "program")
-        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: false, windowedOpen: true) == "windowed")
-        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: true, windowedOpen: false) == "fullscreen")
-        precondition(ProgramAudioOwnership.ownerScope(fullscreenOpen: true, windowedOpen: true) == "fullscreen")
+        var audioShow = PresentationSlide(text: "Soundtrack")
+        audioShow.backgroundVideoPath = "/tmp/continuous.mov"
+        audioShow.backgroundVideoAudioEnabled = true
+        audioShow.backgroundVideoVolume = 0.7
+        audioShow.layers.append(SlideLayer.makeAudio(path: "/tmp/cue.wav"))
+        let videoSession = UUID(), cueSession = UUID()
+        let sessions = [VideoTakePlanner.canonical("/tmp/continuous.mov"): videoSession,
+                        VideoTakePlanner.canonical("/tmp/cue.wav"): cueSession]
+        let before = ProgramAudioCuePlan.cues(slide: audioShow, sessions: sessions,
+                                               transitionGain: 0.25)
+        let after = ProgramAudioCuePlan.cues(slide: audioShow, sessions: sessions,
+                                              transitionGain: 0.75)
+        precondition(before.count == 2 && after.count == 2)
+        let mergedAudio = ProgramAudioCuePlan.merged(before + after)
+        precondition(mergedAudio.count == 2, "Continued cues must not create multiple audio streams")
+        precondition(mergedAudio.first(where: { $0.sourceSlot == "background" })?.sessionID == videoSession)
+        precondition(abs((mergedAudio.first(where: { $0.sourceSlot == "background" })?.volume ?? 0) - 0.7) < 0.0001)
+        precondition(mergedAudio.first(where: { $0.sourceSlot == "audio" })?.sessionID == cueSession)
         precondition(VideoAudioHandoffPolicy.needsAlignment(followerElapsed: 0, leaderElapsed: 18))
         precondition(!VideoAudioHandoffPolicy.needsAlignment(followerElapsed: 17.95, leaderElapsed: 18))
         precondition(!VideoAudioHandoffPolicy.needsAlignment(followerElapsed: 0, leaderElapsed: 0.01))

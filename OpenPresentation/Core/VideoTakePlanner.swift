@@ -96,13 +96,92 @@ enum SharedVideoPreviewPolicy {
     static let maximumImageDimension: Double = 360
 }
 
-/// Exactly one playback scope owns the show's audible audio at a time.
-/// Program is the fallback owner when neither audience window is running.
-enum ProgramAudioOwnership {
-    static func ownerScope(fullscreenOpen: Bool, windowedOpen: Bool) -> String {
-        if fullscreenOpen { return "fullscreen" }
-        if windowedOpen { return "windowed" }
-        return "program"
+/// A persistent audio bus owns one stream per media take, independent of
+/// which video output windows happen to be open. These descriptors are pure
+/// show data so audio rendering does not depend on SwiftUI canvas lifetimes.
+struct ProgramAudioCue: Identifiable {
+    let path: String
+    let sessionID: UUID
+    let sourceSlot: String
+    let loops: Bool
+    let videoEndBehavior: VideoEndBehavior?
+    let fadeDuration: Double
+    var volume: Double
+    var preFaderGain: Double
+    var faderGain: Double
+
+    var id: String { "\(path)|\(sessionID.uuidString)|\(sourceSlot)" }
+}
+
+enum ProgramAudioCuePlan {
+    private static let fallbackSession = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+
+    static func cues(slide: PresentationSlide?, sessions: [String: UUID],
+                     transitionGain: Double = 1) -> [ProgramAudioCue] {
+        guard let slide else { return [] }
+        let fader = slide.resolvedCueAudioGain
+        var result: [ProgramAudioCue] = []
+
+        func add(path: String, slot: String, gain: Double, loops: Bool,
+                 behavior: VideoEndBehavior? = nil, fade: Double = 0.75) {
+            guard !path.isEmpty else { return }
+            let canonical = VideoTakePlanner.canonical(path)
+            result.append(ProgramAudioCue(path: canonical,
+                                           sessionID: sessions[canonical] ?? fallbackSession,
+                                           sourceSlot: slot, loops: loops,
+                                           videoEndBehavior: behavior, fadeDuration: fade,
+                                           volume: gain * fader * transitionGain,
+                                           preFaderGain: gain * transitionGain,
+                                           faderGain: fader))
+        }
+
+        if slide.backgroundVideoAudioEnabled == true, let path = slide.backgroundVideoPath {
+            let behavior = slide.resolvedBackgroundVideoEndBehavior
+            add(path: path, slot: "background", gain: slide.resolvedBackgroundVideoVolume,
+                loops: behavior == .loop || behavior == .softLoop,
+                behavior: behavior, fade: slide.resolvedBackgroundVideoFadeDuration)
+        }
+        var pathOccurrences: [String: Int] = [:]
+        for layer in slide.layers {
+            switch layer.kind {
+            case .video:
+                guard let path = layer.videoPath else { continue }
+                let occurrence = pathOccurrences[path, default: 0]
+                pathOccurrences[path] = occurrence + 1
+                guard layer.isVisible, layer.videoAudioEnabled == true else { continue }
+                let behavior = layer.resolvedVideoEndBehavior
+                add(path: path, slot: "layer-\(occurrence)",
+                    gain: layer.resolvedVideoVolume,
+                    loops: behavior == .loop || behavior == .softLoop,
+                    behavior: behavior, fade: layer.resolvedVideoFadeDuration)
+            case .audio:
+                guard layer.isVisible, let path = layer.audioPath else { continue }
+                // Preserve consecutive-slide audio continuation even when
+                // the authored layer UUID changes between slides.
+                add(path: path, slot: "audio",
+                    gain: layer.resolvedAudioVolume, loops: layer.audioLoops ?? false)
+            default: break
+            }
+        }
+        return result
+    }
+
+    /// A continued media session appearing in both transition frames must
+    /// stay one audio stream. Add its fade-weighted gain, not its players.
+    static func merged(_ cues: [ProgramAudioCue]) -> [ProgramAudioCue] {
+        var byID: [String: ProgramAudioCue] = [:]
+        for cue in cues {
+            if var existing = byID[cue.id] {
+                existing.volume += cue.volume
+                existing.preFaderGain += cue.preFaderGain
+                existing.faderGain = existing.preFaderGain > 0
+                    ? min(1, existing.volume / existing.preFaderGain) : 0
+                byID[cue.id] = existing
+            } else {
+                byID[cue.id] = cue
+            }
+        }
+        return byID.values.sorted(by: { $0.id < $1.id })
     }
 }
 

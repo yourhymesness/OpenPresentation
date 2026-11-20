@@ -1,4 +1,10 @@
-# OpenPresentation v0.4.12 Alpha — Audio Handoff and Meter Recovery
+# OpenPresentation v0.4.13 Alpha — Persistent Show Audio Bus
+
+**Output changes no longer hand off audio between video players.** One persistent audio bus, mounted independently of Fullscreen, Windowed, and reduced Program previews, owns video soundtracks and audio-only cues for the duration of each media take. Output windows decode the **picture only**, so opening/closing an output cannot restart the sound, produce two copies, or swap the PCM meter connection. New video windows align their picture playhead to the ongoing audio bus when a soundtrack is present. Cue/master gains, mute, transitions, audio settings, and video transport still apply.
+
+This is a larger alpha playback change. Video soft loops use the audio bus's standard gap-minimized loop rather than the old dual-player overlapping audio fade; validate loops, one-shots, video end fades, layered audio and A/V sync on your Mac before a production show. The actual audio playback hardware has not been qualified by CI.
+
+## Previous: v0.4.12 Alpha — Audio Handoff and Meter Recovery
 
 **Opening or closing outputs while a slide is already playing:** Audio-only cues now share one retained AVPlayer and PCM meter tap across Program, Windowed and Fullscreen views, so changing windows does not restart them. Video decoders still render independently on each output, but new decoders stay muted until they have sought to the running slide's current playhead. PCM meter taps stay attached across audio-owner changes, and temporary output priority changes no longer disable authored audio tracks. Playback handoff can involve a short mute while the new decoder seeks; it should not replay the start of the soundtrack. Test this on macOS hardware with loops, fades and eight-video slides before live use.
 

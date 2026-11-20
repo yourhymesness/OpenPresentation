@@ -650,7 +650,7 @@ private struct AudioSettingsView: View {
                     .foregroundStyle(.orange)
                     .font(.caption)
             }
-            Text("Audio plays from Fullscreen Output first, then Windowed Output. With both closed, Program-only rehearsal plays sound through this device. Only one output is audible at once. Changing devices during playback may cause a brief interruption.")
+            Text("The show uses one continuous audio player independent of Fullscreen, Windowed or Program-only rehearsal. Opening or closing video outputs no longer changes the sound source. Changing devices during playback may cause a brief interruption.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

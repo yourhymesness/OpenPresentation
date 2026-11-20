@@ -181,6 +181,13 @@ struct OperatorView: View {
             .background(isBlind ? blindSurface : Color.gray.opacity(0.06))
         }
         .background((isBlind ? blindBackground : Color(nsColor: .windowBackgroundColor)).ignoresSafeArea())
+        .overlay(alignment: .topLeading) {
+            // The show soundtrack belongs to this persistent operator scene,
+            // never to a windowed/fullscreen video output or reduced preview.
+            ProgramAudioBusView(controller: show)
+                .frame(width: 1, height: 1)
+                .accessibilityHidden(true)
+        }
         .preferredColorScheme(isBlind ? .dark : liveColorScheme)
         .animation(.easeInOut(duration: 0.38), value: show.mode)
         // All three navigation paths can change the notes binding while the
@@ -848,7 +855,6 @@ struct OperatorView: View {
                 let width = min(area.size.width, area.size.height * ratio)
                 let height = width / ratio
                 ProgramCanvas(controller: show,
-                              allowsAudio: output.audioOwnerScope == "program",
                               videoDecodingEnabled: programPreviewRenderMode == .native,
                               sharedVideoPreview: programPreviewRenderMode == .sharedFrames)
                     .transaction { $0.disablesAnimations = true }

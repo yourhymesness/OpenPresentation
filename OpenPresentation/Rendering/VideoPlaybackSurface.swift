@@ -268,6 +268,7 @@ final class VideoPlaybackPool {
         for (key, entry) in entries where key.path == k.path && key.sessionID == sessionID {
             entry.engine.setUserPaused(paused, explicitCommand: true)
         }
+        AudioPlaybackPool.shared.setPaused(paused, path: path, sessionID: sessionID)
     }
 
     func seek(to seconds: Double, path: String, sessionID: UUID) {
@@ -281,6 +282,7 @@ final class VideoPlaybackPool {
         for (key, entry) in entries where key.path == k.path && key.sessionID == sessionID {
             entry.engine.applySeek(seconds, revision: intent.seekRevision)
         }
+        AudioPlaybackPool.shared.seek(to: seconds, path: path, sessionID: sessionID)
     }
 
     func applyTransportIntent(to engine: VideoPlaybackNSView, key: Key) {
@@ -296,22 +298,21 @@ final class VideoPlaybackPool {
     /// sought to the already-running Program take. Visual frames may render
     /// while seeking, but the new decoder must never play audio from zero.
     func prepareNewSurface(_ engine: VideoPlaybackNSView, key: Key) {
-        guard let master = activeMaster(for: key) else {
+        guard let reference = playbackReferenceTime(for: key) else {
             engine.setInitialAlignmentPending(false)
             return
         }
         engine.setInitialAlignmentPending(VideoAudioHandoffPolicy.needsAlignment(
             followerElapsed: engine.transportStatus.elapsed,
-            leaderElapsed: master.transportStatus.elapsed))
+            leaderElapsed: reference))
     }
 
     /// Synchronize a newly opened window before making its audio audible.
     func alignNewSurface(_ engine: VideoPlaybackNSView, key: Key) {
-        guard let master = activeMaster(for: key) else {
+        guard let elapsed = playbackReferenceTime(for: key) else {
             engine.setInitialAlignmentPending(false)
             return
         }
-        let elapsed = master.transportStatus.elapsed
         guard engine.isInitialAlignmentPending else {
             if elapsed > 0.08 { engine.alignPlayback(to: elapsed) }
             return
@@ -327,7 +328,7 @@ final class VideoPlaybackPool {
                 // An operator seek or AVQueuePlayer item replacement can
                 // cancel the initial seek. Retry against the latest leader
                 // position before allowing this output to make sound.
-                let latest = self.activeMaster(for: key)?.transportStatus.elapsed ?? elapsed
+                let latest = self.playbackReferenceTime(for: key) ?? elapsed
                 engine.alignPlayback(to: latest) { [weak engine] _ in
                     guard let engine, engine.superview != nil,
                           self.entries[key]?.engine === engine,
@@ -336,6 +337,17 @@ final class VideoPlaybackPool {
                 }
             }
         }
+    }
+
+    private func playbackReferenceTime(for key: Key) -> Double? {
+        // For videos with sound, the persistent audio bus is the clock.
+        // It is never restarted by output window changes and is more reliable
+        // than the playhead of a recently detached visual decoder.
+        if let time = AudioPlaybackPool.shared.playbackTime(
+            path: key.path, sessionID: key.sessionID, sourceSlot: key.sourceSlot) {
+            return time
+        }
+        return activeMaster(for: key)?.transportStatus.elapsed
     }
 
     private func activeMaster(for key: Key) -> VideoPlaybackNSView? {
