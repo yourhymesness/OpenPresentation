@@ -1127,11 +1127,15 @@ private final class SharedVideoPreviewHub {
         // than queuing unbounded work that could interfere with audience video.
         guard !conversionInFlight else { return }
         let keys = Set(previews.values.compactMap { $0.view?.streamKey })
-        let buffers: [(SharedVideoStreamKey, CVPixelBuffer)] = keys.compactMap { key in
-            guard let buffer = VideoPlaybackPool.shared.previewPixelBuffer(
-                path: key.path, sessionID: key.sessionID,
-                sourceSlot: key.sourceSlot) else { return nil }
-            return (key, buffer)
+        let buffers: [(SharedVideoStreamKey, CVPixelBuffer)] = MainActor.assumeIsolated {
+            // This hub is driven by a timer installed on RunLoop.main. The
+            // AVPlayer-backed frame source must stay on the main actor.
+            keys.compactMap { key in
+                guard let buffer = VideoPlaybackPool.shared.previewPixelBuffer(
+                    path: key.path, sessionID: key.sessionID,
+                    sourceSlot: key.sourceSlot) else { return nil }
+                return (key, buffer)
+            }
         }
         guard !buffers.isEmpty else { return }
         conversionInFlight = true
