@@ -68,6 +68,7 @@ struct SlideCanvas: View {
     // editor and Preview display a placeholder so they don't consume players.
     var playsVideo: Bool = false
     var sharedVideoPreview: Bool = false
+    var metalVideoPreview: Bool = false
     /// Unique renderer scope so multiple simultaneous output windows never steal AVPlayerLayers.
     var outputScope: String = "program"
     /// 0...1 fade of soundtrack across slide transitions; visuals use opacity.
@@ -142,7 +143,7 @@ struct SlideCanvas: View {
                                sharedBackgroundMode == .contentWithoutSharedBackground) &&
                               !backgroundIsShared && !isCleared && !isBlackout,
                               let data = slide?.backgroundImageData, let image = MediaImageCache.image(for: data) {
-                        if (playsVideo || sharedVideoPreview) && AnimatedGIFImage.isGIF(data) {
+                        if (playsVideo || sharedVideoPreview || metalVideoPreview) && AnimatedGIFImage.isGIF(data) {
                             AnimatedGIFImage(data: data)
                                 .frame(width: canvasWidth, height: canvasHeight)
                                 .clipped()
@@ -202,7 +203,7 @@ struct SlideCanvas: View {
         case .image:
             if let data = layer.imageData, let image = MediaImageCache.image(for: data) {
                 Group {
-                    if (playsVideo || sharedVideoPreview) && AnimatedGIFImage.isGIF(data) {
+                    if (playsVideo || sharedVideoPreview || metalVideoPreview) && AnimatedGIFImage.isGIF(data) {
                         AnimatedGIFImage(data: data, contentMode: layer.resolvedContentMode)
                     } else {
                         switch layer.resolvedContentMode {
@@ -265,6 +266,16 @@ struct SlideCanvas: View {
                                  preFaderGain: volume * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
                                      ? 1.0 : transitionAudioGain),
                                  faderGain: cueAudioGain)
+                .frame(width: width, height: height)
+                .clipped()
+        } else if metalVideoPreview {
+            // A GPU-backed preview fed by the audience's existing decoder.
+            // This path is opt-in and never replaces on-air AVPlayerLayers.
+            MetalVideoPreviewSurface(
+                path: path,
+                playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
+                    UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                sourceSlot: sourceSlot, contentMode: contentMode)
                 .frame(width: width, height: height)
                 .clipped()
         } else if sharedVideoPreview {
@@ -390,6 +401,7 @@ struct ProgramCanvas: View {
     /// The actual audience canvases always retain full video playback.
     var videoDecodingEnabled: Bool = true
     var sharedVideoPreview: Bool = false
+    var metalVideoPreview: Bool = false
     private var showCanvasSize: ShowCanvasSize { controller.canvasSize }
 
     private func audioGains(for transition: ProgramTransition, at date: Date) -> (old: Double, new: Double) {
@@ -435,6 +447,7 @@ struct ProgramCanvas: View {
                                     // Shared video is already drawn under this overlay.
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                     outputScope: outputScope,
                                     cueAudioGainOverride: (transition.from.slide?.resolvedCueAudioGain ?? 1) * (1 - transition.progress(at: timeline.date))
                                         + (transition.to.slide?.resolvedCueAudioGain ?? 1) * transition.progress(at: timeline.date),
@@ -455,6 +468,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
                                     continuingVideoPaths: continuing,
@@ -468,6 +482,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
                                     continuingVideoPaths: continuing,
@@ -482,6 +497,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
                                     continuingVideoPaths: continuing,
@@ -496,6 +512,7 @@ struct ProgramCanvas: View {
                                     canvasSize: showCanvasSize,
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
                                     continuingVideoPaths: continuing,
@@ -512,6 +529,7 @@ struct ProgramCanvas: View {
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.old,
                                 continuingVideoPaths: continuing,
@@ -527,6 +545,7 @@ struct ProgramCanvas: View {
                                 showTransparencyOnBlack: sharedBackground == nil,
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.new,
                                 continuingVideoPaths: continuing,
@@ -544,6 +563,7 @@ struct ProgramCanvas: View {
                                 showTransparencyOnBlack: true,
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
+                                    metalVideoPreview: metalVideoPreview,
                                 outputScope: outputScope,
                                 videoSessions: controller.liveVideoSessions)
                 }

@@ -1,3 +1,10 @@
+## v0.5.0-alpha — Metal Preview Prototype and Frame Diagnostics
+
+- Added an **experimental, opt-in 30 FPS Metal Program video preview**, sourced from the audience output's existing AVPlayer decoded frames. It does not create additional video players or touch the audience output renderer or persistent show-audio bus.
+- Added a rolling diagnostic panel for unique video-frame availability, sampler missed deadlines, Metal CPU command-encoding time (mean/P95), and operator interface heartbeat stalls. This is deliberately not labeled GPU utilization or verified physical frame drops.
+- Added portable timed-sample regression coverage; retained Full Video, Auto, Shared 12 FPS and Low-load modes and native video rehearsal when no audience output is open.
+- Alpha limitation: this is a per-layer GPU rendering prototype, not yet a shared multi-output compositor. Visual parity, decoder workload and sync on macOS hardware remain to be qualified before it can power live audience displays.
+
 ## v0.4.13-alpha — Persistent soundtrack independent of video outputs
 
 - Replaced per-window audio ownership with one operator-owned Program audio bus. All visual AVPlayerLayer engines are silent and may open, close, remount, or change preview quality without starting/stopping audio players.

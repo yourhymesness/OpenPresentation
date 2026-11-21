@@ -60,6 +60,7 @@ enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
     case automatic = "Auto"
     case fullMotion = "Full Video"
     case sharedFrames = "Shared 12 FPS"
+    case metalFrames = "Metal 30 FPS · Test"
     case lowLoad = "Low-load"
 
     var id: String { rawValue }
@@ -72,6 +73,9 @@ enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
         // playable rehearsal surface, including soundtrack audio from video.
         case .lowLoad: return audienceOutputOpen ? .placeholder : .native
         case .sharedFrames: return audienceOutputOpen ? .sharedFrames : .native
+        // The prototype consumes already-decoded audience frames. Without an
+        // audience decoder, use the existing full-motion rehearsal renderer.
+        case .metalFrames: return audienceOutputOpen ? .metalFrames : .native
         case .automatic:
             return audienceOutputOpen && visibleVideos > 0 && pressureDetected
                 ? .sharedFrames : .native
@@ -88,7 +92,7 @@ enum ProgramPreviewQuality: String, CaseIterable, Identifiable {
 }
 
 enum ProgramPreviewRenderMode {
-    case native, sharedFrames, placeholder
+    case native, sharedFrames, metalFrames, placeholder
 }
 
 enum SharedVideoPreviewPolicy {

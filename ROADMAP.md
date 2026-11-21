@@ -1,8 +1,10 @@
 # OpenPresentation Roadmap
 
-**Current alpha: v0.4.13.** The persistent show-audio bus and seamless output
+**Current alpha: v0.5.0.** The persistent show-audio bus and seamless output
 handoff are implemented and have been tested on macOS hardware. The priorities
 below were reordered to put Metal rendering ahead of Stream Deck controls.
+The first Metal Program preview and rolling frame diagnostics are now available
+behind an explicit experimental Preview choice; audience output is unchanged.
 
 ## v0.5.x — Metal rendering and multi-output foundation (next)
 
@@ -10,7 +12,7 @@ below were reordered to put Metal rendering ahead of Stream Deck controls.
 Program monitor and multiple audience destinations. Preserve the continuous
 show-audio bus introduced in v0.4.13.
 
-- **v0.5.0 — Measure and prove the rendering path.** Instrument frame timing,
+- **v0.5.0 — Measure and prove the rendering path (prototype).** Instrument frame timing,
   missed display deadlines, decoder/frame availability, memory pressure, and
   texture transfers. Benchmark real 1-, 4-, and 8-video slides on Apple Silicon,
   including the M5 Pro and existing M1 Pro test machines, with output windows

@@ -31,6 +31,8 @@ private final class ProgramPreviewHealthMonitor: ObservableObject {
         let interval = lastHeartbeat.map { now.timeIntervalSince($0) } ?? 0.25
         lastHeartbeat = now
         let overshoot = interval > 3.0 ? 0 : max(0, interval - 0.25)
+        MetalPreviewDiagnostics.shared.recordHeartbeat(
+            overshootSeconds: overshoot, at: ProcessInfo.processInfo.systemUptime)
         let thermal = ProcessInfo.processInfo.thermalState
         governor.sample(at: now, timerOvershoot: overshoot,
                         audienceOutputOpen: audienceOutputOpen,
@@ -77,6 +79,7 @@ struct OperatorView: View {
     @AppStorage("liveSlideViewMode") private var liveSlideViewMode = "icons"
     @AppStorage("programPreviewQuality") private var programPreviewQuality = ProgramPreviewQuality.automatic.rawValue
     @StateObject private var previewHealth = ProgramPreviewHealthMonitor()
+    @State private var showingRenderDiagnostics = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var notesEditorTarget: SlideNotesEditorTarget?
     @State private var transitionEditorTarget: SlideTransitionEditorTarget?
@@ -824,13 +827,15 @@ struct OperatorView: View {
                 }
                 Spacer(minLength: 0)
                 if programPreviewRenderMode != .native && visibleProgramVideoCount > 0 {
-                    Label(programPreviewRenderMode == .sharedFrames
-                          ? "SHARED 12 FPS" : "PREVIEW REDUCED",
-                          systemImage: "bolt.fill")
+                    Label(programPreviewRenderMode == .metalFrames ? "METAL 30 FPS · TEST" :
+                          (programPreviewRenderMode == .sharedFrames ? "SHARED 12 FPS" : "PREVIEW REDUCED"),
+                          systemImage: programPreviewRenderMode == .metalFrames ? "cpu" : "bolt.fill")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(programPreviewRenderMode == .metalFrames ? .mint : .orange)
                         .lineLimit(1)
-                        .help(programPreviewRenderMode == .sharedFrames
+                        .help(programPreviewRenderMode == .metalFrames
+                              ? "Experimental 30 FPS Metal Program video preview. Audience video and persistent audio are unchanged. Requires an open audience output."
+                              : programPreviewRenderMode == .sharedFrames
                               ? "Program reads sampled frames from audience video decoders at 12 FPS. \(previewQuality == .automatic ? "Auto trigger: \(previewHealth.reason)" : "Manual shared preview")"
                               : "Manual Low-load uses static placeholders; audience output remains full motion.")
                 }
@@ -845,6 +850,17 @@ struct OperatorView: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .help("Auto switches to shared 12 FPS moving video only when sustained pressure is detected. Shared 12 FPS avoids Program decoders while the audience output is open. Full Video and Low-load are overrides.")
+                Button {
+                    showingRenderDiagnostics.toggle()
+                } label: {
+                    Label("Frame Stats", systemImage: "chart.xyaxis.line")
+                        .font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .popover(isPresented: $showingRenderDiagnostics) {
+                    MetalPreviewDiagnosticsPanel()
+                }
+                .help("Experimental renderer: 10-second frame availability, missed preview samples, Metal encoding time, and operator heartbeat timing.")
             }
 
             // Fit the active show's aspect ratio into Program's reserved area.
@@ -856,7 +872,8 @@ struct OperatorView: View {
                 let height = width / ratio
                 ProgramCanvas(controller: show,
                               videoDecodingEnabled: programPreviewRenderMode == .native,
-                              sharedVideoPreview: programPreviewRenderMode == .sharedFrames)
+                              sharedVideoPreview: programPreviewRenderMode == .sharedFrames,
+                              metalVideoPreview: programPreviewRenderMode == .metalFrames)
                     .transaction { $0.disablesAnimations = true }
                     .background(Color.black)
                     .clipShape(RoundedRectangle(cornerRadius: 7))

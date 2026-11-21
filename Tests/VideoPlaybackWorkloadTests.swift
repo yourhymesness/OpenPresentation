@@ -72,6 +72,12 @@ import Foundation
             visibleVideos: 8, audienceOutputOpen: true) == .sharedFrames)
         precondition(ProgramPreviewQuality.sharedFrames.renderMode(
             visibleVideos: 8, audienceOutputOpen: false) == .native)
+        precondition(ProgramPreviewQuality.metalFrames.renderMode(
+            visibleVideos: 8, audienceOutputOpen: true) == .metalFrames)
+        precondition(ProgramPreviewQuality.metalFrames.renderMode(
+            visibleVideos: 8, audienceOutputOpen: false) == .native)
+        precondition(!ProgramPreviewQuality.metalFrames.playsVideo(
+            visibleVideos: 8, audienceOutputOpen: true))
         precondition(ProgramPreviewQuality.fullMotion.renderMode(
             visibleVideos: 8, audienceOutputOpen: true, pressureDetected: true) == .native)
         precondition(ProgramPreviewQuality.lowLoad.renderMode(

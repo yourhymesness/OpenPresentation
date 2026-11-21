@@ -73,6 +73,11 @@ jobs:
             OpenPresentation/Core/VideoTakePlanner.swift \
             Tests/VideoPlaybackWorkloadTests.swift -o /tmp/video-workload
           /tmp/video-workload
+      - name: Test Metal frame diagnostics and sample timing
+        run: |
+          swiftc OpenPresentation/Core/RenderTiming.swift \
+            Tests/RenderTimingTests.swift -o /tmp/render-timing
+          /tmp/render-timing
       - name: Test adaptive peak bars at 60, 120 and 144 Hz
         run: |
           swiftc OpenPresentation/Core/SignalMeterMath.swift \

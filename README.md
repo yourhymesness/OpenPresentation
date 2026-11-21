@@ -1,4 +1,23 @@
-# OpenPresentation v0.4.13 Alpha — Persistent Show Audio Bus
+# OpenPresentation v0.5.0 Alpha — Experimental Metal Program Preview
+
+**Metal rendering experiment (off-air):** With a Windowed or Fullscreen audience
+output running, choose **Preview → Metal 30 FPS · Test** in the Program monitor.
+The small Program preview then samples decoded video frames from the existing
+audience players and presents them using a Metal-backed view. Click **Frame
+Stats** to inspect a rolling ten-second window of frame availability, missed
+preview sample deadlines, CPU command-encoding times and operator heartbeat
+stalls. With no audience output open, this mode falls back to full-motion
+rehearsal playback, including audio.
+
+This is **not yet the shared Metal audience renderer**: live output remains on
+the established AVPlayerLayer path, and video clips can still be decoded
+independently by Windowed and Fullscreen. The Metal preview is an opt-in test
+surface, not a quality/performance guarantee, nor a GPU utilization or true
+hardware frame-drop meter. Transparent video, loops, fades, image aspect ratios
+and visual timing all need hands-on testing before extending it to audience
+outputs. Your existing audio bus is unchanged.
+
+## Previous: v0.4.13 Alpha — Persistent Show Audio Bus
 
 **Next on the roadmap:** v0.5 focuses on Metal-based shared rendering,
 performance profiling, and multi-output/edge-blending foundations. The Stream
