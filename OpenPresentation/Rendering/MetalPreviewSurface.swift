@@ -13,17 +13,20 @@ struct MetalVideoPreviewSurface: NSViewRepresentable {
     let playbackSessionID: UUID
     let sourceSlot: String
     let contentMode: LayerContentMode
+    var transitionOpacity: Double = 1.0
 
     func makeNSView(context: Context) -> MetalVideoSnapshotView {
         let view = MetalVideoSnapshotView(frame: .zero, device: MTLCreateSystemDefaultDevice())
         view.configure(path: path, sessionID: playbackSessionID,
-                       sourceSlot: sourceSlot, mode: contentMode)
+                       sourceSlot: sourceSlot, mode: contentMode,
+                       transitionOpacity: transitionOpacity)
         return view
     }
 
     func updateNSView(_ view: MetalVideoSnapshotView, context: Context) {
         view.configure(path: path, sessionID: playbackSessionID,
-                       sourceSlot: sourceSlot, mode: contentMode)
+                       sourceSlot: sourceSlot, mode: contentMode,
+                       transitionOpacity: transitionOpacity)
     }
 
     static func dismantleNSView(_ view: MetalVideoSnapshotView, coordinator: ()) {
@@ -119,6 +122,8 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
     private(set) var streamKey: MetalPreviewStreamKey?
     private var contentMode: LayerContentMode = .fill
     private var latestBuffer: CVPixelBuffer?
+    private let startupPoster = CALayer()
+    private var hasLiveFrame = false
     private var commandQueue: MTLCommandQueue?
     private var imageContext: CIContext?
     private let workingColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
@@ -139,6 +144,9 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
         framebufferOnly = false // Core Image writes directly to drawable.texture.
         clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         layer?.isOpaque = false
+        startupPoster.opacity = 0
+        startupPoster.contentsGravity = .resizeAspectFill
+        layer?.addSublayer(startupPoster)
         isPaused = true
         enableSetNeedsDisplay = false
         delegate = self
@@ -148,15 +156,60 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
         }
     }
 
-    func configure(path: String, sessionID: UUID, sourceSlot: String, mode: LayerContentMode) {
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        startupPoster.frame = bounds
+        CATransaction.commit()
+    }
+
+    func configure(path: String, sessionID: UUID, sourceSlot: String, mode: LayerContentMode,
+                   transitionOpacity: Double) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.opacity = Float(min(max(transitionOpacity, 0), 1))
+        CATransaction.commit()
         contentMode = mode
+        switch mode {
+        case .fit: startupPoster.contentsGravity = .resizeAspect
+        case .fill: startupPoster.contentsGravity = .resizeAspectFill
+        case .stretch: startupPoster.contentsGravity = .resize
+        }
         let key = MetalPreviewStreamKey(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                         sessionID: sessionID, sourceSlot: sourceSlot)
         guard streamKey != key else { return }
         unsubscribe()
         streamKey = key
         latestBuffer = nil
+        hasLiveFrame = false
+        let cached = VideoFirstFrameCache.shared.frame(for: key.path) { [weak self] frame in
+            guard let self, self.streamKey == key, !self.hasLiveFrame else { return }
+            self.showStartupPoster(frame)
+        }
+        showStartupPoster(cached)
         MetalVideoPreviewHub.shared.subscribe(self)
+    }
+
+    private func showStartupPoster(_ frame: CGImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        startupPoster.contents = frame
+        startupPoster.opacity = frame == nil ? 0 : 1
+        CATransaction.commit()
+    }
+
+    private func dismissStartupPoster() {
+        guard startupPoster.opacity > 0 else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = startupPoster.presentation()?.opacity ?? startupPoster.opacity
+        fade.toValue = 0
+        fade.duration = 0.12
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        startupPoster.opacity = 0
+        CATransaction.commit()
+        startupPoster.add(fade, forKey: "first-metal-video-frame")
     }
 
     func receive(_ buffer: CVPixelBuffer) {
@@ -168,6 +221,9 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
         MetalVideoPreviewHub.shared.unsubscribe(identity)
         streamKey = nil
         latestBuffer = nil
+        hasLiveFrame = false
+        startupPoster.removeAllAnimations()
+        showStartupPoster(nil)
     }
 
     nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -211,6 +267,16 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
         imageContext.render(frame, to: drawable.texture, commandBuffer: commandBuffer,
                             bounds: target, colorSpace: workingColorSpace)
         commandBuffer.present(drawable)
+        if !hasLiveFrame {
+            let presentedKey = streamKey
+            commandBuffer.addCompletedHandler { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.streamKey == presentedKey else { return }
+                    self.hasLiveFrame = true
+                    self.dismissStartupPoster()
+                }
+            }
+        }
         commandBuffer.commit()
         MetalPreviewDiagnostics.shared.recordEncode(
             milliseconds: (ProcessInfo.processInfo.systemUptime - started) * 1_000,

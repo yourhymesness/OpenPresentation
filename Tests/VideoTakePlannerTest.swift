@@ -40,6 +40,27 @@ import Foundation
         // Older JSON that omitted settings uses the safe default.
         assert(foreground.resolvedBackgroundVideoTakeBehavior == .continueOnConsecutive)
         assert(SlideLayer.makeVideo(path: path).resolvedVideoTakeBehavior == .continueOnConsecutive)
+        // A foreground Video Layer needs a persistent compositing plane,
+        // outside the outgoing AND incoming canvases that are crossfaded.
+        // Verify that text below/above the video is split at its position.
+        var fromLayers = PresentationSlide(text: "Before")
+        fromLayers.layers.append(.makeVideo(path: path))
+        fromLayers.layers.append(SlideLayer(name: "Upper", kind: .text))
+        var toLayers = PresentationSlide(text: "After")
+        toLayers.layers.append(.makeVideo(path: path))
+        toLayers.layers.append(SlideLayer(name: "Upper", kind: .text))
+        let anchors = ContinuingVideoLayerPlan.anchors(
+            from: fromLayers, to: toLayers, continuingPaths: [canonical])
+        assert(anchors.count == 1 && anchors[0].fromIndex == 1 && anchors[0].toIndex == 1)
+        assert(ContinuingVideoLayerPlan.anchors(
+            from: fromLayers, to: toLayers, continuingPaths: []).isEmpty)
+        toLayers.layers[1].videoPath = "/tmp/other.mov"
+        assert(ContinuingVideoLayerPlan.anchors(
+            from: fromLayers, to: toLayers, continuingPaths: [canonical]).isEmpty)
+        toLayers.layers[1].videoPath = path
+        toLayers.layers[1].isVisible = false
+        assert(ContinuingVideoLayerPlan.anchors(
+            from: fromLayers, to: toLayers, continuingPaths: [canonical]).isEmpty)
         print("PASS: adjacent media continuity, gap restart, forced restart, foreground media")
     }
 }

@@ -69,6 +69,9 @@ struct SlideCanvas: View {
     var playsVideo: Bool = false
     var sharedVideoPreview: Bool = false
     var metalVideoPreview: Bool = false
+    /// SwiftUI fades the slide tree, but AppKit/Metal video surfaces must also
+    /// receive the exact transition alpha on their own Core Animation layer.
+    var videoTransitionOpacity: Double = 1.0
     /// Unique renderer scope so multiple simultaneous output windows never steal AVPlayerLayers.
     var outputScope: String = "program"
     /// 0...1 fade of soundtrack across slide transitions; visuals use opacity.
@@ -81,6 +84,9 @@ struct SlideCanvas: View {
     /// Shared media can continue at full volume across slide takes.
     var continuingVideoPaths: Set<String> = []
     var sharedBackgroundMode: SharedBackgroundVideoMode = .normal
+    /// Restrict an overlay to one contiguous band of foreground layers. This
+    /// keeps a continuing video outside both fading SwiftUI parent canvases.
+    var visibleLayerRange: Range<Int>? = nil
     /// A session distinguishes a fresh video take from a cached old decoder.
     var videoSessions: [String: UUID] = [:]
 
@@ -158,8 +164,9 @@ struct SlideCanvas: View {
 
                     if sharedBackgroundMode != .sharedBackgroundOnly && sharedBackgroundMode != .backgroundOnly,
                        let slide, !isBlackout && !isCleared {
-                        ForEach(slide.layers) { layer in
-                            if layer.isVisible {
+                        ForEach(slide.layers.indices, id: \.self) { index in
+                            let layer = slide.layers[index]
+                            if layer.isVisible && (visibleLayerRange?.contains(index) ?? true) {
                                 layerView(layer, scale: scale,
                                           canvasWidth: canvasWidth, canvasHeight: canvasHeight)
                             }
@@ -243,6 +250,9 @@ struct SlideCanvas: View {
                                          fade: Double, audible: Bool, volume: Double,
                                          contentMode: LayerContentMode, width: CGFloat, height: CGFloat,
                                          sourceSlot: String) -> some View {
+        let visualOpacity = VideoTransitionOpacityPolicy.opacity(
+            for: path, continuingPaths: continuingVideoPaths,
+            transitionOpacity: videoTransitionOpacity)
         if !FileManager.default.fileExists(atPath: path) {
             ZStack {
                 Color.black
@@ -260,6 +270,7 @@ struct SlideCanvas: View {
                                  // never produce a second copy of the sound.
                                  audioEnabled: false,
                                  volume: volume, contentMode: contentMode,
+                                 transitionOpacity: visualOpacity,
                                  outputScope: outputScope, sourceSlot: sourceSlot,
                                  audioGain: cueAudioGain * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
                                      ? 1.0 : transitionAudioGain),
@@ -275,7 +286,8 @@ struct SlideCanvas: View {
                 path: path,
                 playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
                     UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
-                sourceSlot: sourceSlot, contentMode: contentMode)
+                sourceSlot: sourceSlot, contentMode: contentMode,
+                transitionOpacity: visualOpacity)
                 .frame(width: width, height: height)
                 .clipped()
         } else if sharedVideoPreview {
@@ -283,7 +295,8 @@ struct SlideCanvas: View {
                 path: path,
                 playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
                     UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
-                sourceSlot: sourceSlot, contentMode: contentMode)
+                sourceSlot: sourceSlot, contentMode: contentMode,
+                transitionOpacity: visualOpacity)
                 .frame(width: width, height: height)
                 .clipped()
         } else {
@@ -416,6 +429,66 @@ struct ProgramCanvas: View {
         }
     }
 
+    /// Render each depth band on both sides of one continuous video plane.
+    /// No `.opacity` modifier wraps that plane: only the adjacent content
+    /// bands dissolve, so SwiftUI cannot dim or detach the shared decoder.
+    private func continuousVideoForeground(
+        transition: ProgramTransition,
+        anchors: [ContinuingVideoLayerAnchor],
+        alpha: (outgoing: Double, incoming: Double),
+        gains: (old: Double, new: Double),
+        continuing: Set<String>
+    ) -> some View {
+        ForEach(0..<(anchors.count + 1), id: \.self) { segment in
+            let oldStart = segment == 0 ? 0 : anchors[segment - 1].fromIndex + 1
+            let oldEnd = segment == anchors.count
+                ? (transition.from.slide?.layers.count ?? 0) : anchors[segment].fromIndex
+            let newStart = segment == 0 ? 0 : anchors[segment - 1].toIndex + 1
+            let newEnd = segment == anchors.count
+                ? (transition.to.slide?.layers.count ?? 0) : anchors[segment].toIndex
+            SlideCanvas(slide: transition.from.slide,
+                        scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                        canvasSize: showCanvasSize,
+                        playsVideo: videoDecodingEnabled,
+                        sharedVideoPreview: sharedVideoPreview,
+                        metalVideoPreview: metalVideoPreview,
+                        videoTransitionOpacity: alpha.outgoing,
+                        outputScope: outputScope, transitionAudioGain: gains.old,
+                        continuingVideoPaths: continuing,
+                        sharedBackgroundMode: .foregroundOnly,
+                        visibleLayerRange: oldStart..<oldEnd,
+                        videoSessions: transition.from.videoSessions)
+                .opacity(alpha.outgoing)
+            SlideCanvas(slide: transition.to.slide,
+                        scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                        canvasSize: showCanvasSize,
+                        playsVideo: videoDecodingEnabled,
+                        sharedVideoPreview: sharedVideoPreview,
+                        metalVideoPreview: metalVideoPreview,
+                        videoTransitionOpacity: alpha.incoming,
+                        outputScope: outputScope, transitionAudioGain: gains.new,
+                        continuingVideoPaths: continuing,
+                        sharedBackgroundMode: .foregroundOnly,
+                        visibleLayerRange: newStart..<newEnd,
+                        videoSessions: transition.to.videoSessions)
+                .opacity(alpha.incoming)
+            if segment < anchors.count {
+                let anchor = anchors[segment]
+                SlideCanvas(slide: transition.to.slide,
+                            scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                            canvasSize: showCanvasSize,
+                            playsVideo: videoDecodingEnabled,
+                            sharedVideoPreview: sharedVideoPreview,
+                            metalVideoPreview: metalVideoPreview,
+                            outputScope: outputScope,
+                            continuingVideoPaths: continuing,
+                            sharedBackgroundMode: .foregroundOnly,
+                            visibleLayerRange: anchor.toIndex..<(anchor.toIndex + 1),
+                            videoSessions: transition.to.videoSessions)
+            }
+        }
+    }
+
     var body: some View {
         TimelineView(.animation(paused: controller.activeTransition == nil)) { timeline in
             ZStack {
@@ -436,6 +509,14 @@ struct ProgramCanvas: View {
                               VideoTakePlanner.canonical(outgoing) == VideoTakePlanner.canonical(incoming),
                               continuing.contains(VideoTakePlanner.canonical(incoming)) else { return nil }
                         return incoming
+                    }()
+                    let layerAnchors: [ContinuingVideoLayerAnchor] = {
+                        guard transition.style == .dissolve,
+                              !transition.from.isBlackout, !transition.from.isCleared,
+                              !transition.to.isBlackout, !transition.to.isCleared else { return [] }
+                        return ContinuingVideoLayerPlan.anchors(
+                            from: transition.from.slide, to: transition.to.slide,
+                            continuingPaths: continuing)
                     }()
                     // Keep a continuous background video visible at full
                     // opacity while the foreground slides dissolve above it.
@@ -483,12 +564,19 @@ struct ProgramCanvas: View {
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
                                     metalVideoPreview: metalVideoPreview,
+                                    videoTransitionOpacity: transition.progress(at: timeline.date),
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
                                     continuingVideoPaths: continuing,
                                     sharedBackgroundMode: .backgroundOnly,
                                     videoSessions: transition.to.videoSessions)
                             .opacity(transition.progress(at: timeline.date))
+                    }
+                    if !layerAnchors.isEmpty {
+                        continuousVideoForeground(
+                            transition: transition, anchors: layerAnchors,
+                            alpha: alpha, gains: gains, continuing: continuing)
+                    } else if transition.style == .dissolve && sharedBackground == nil {
                         SlideCanvas(slide: transition.from.slide,
                                     isBlackout: transition.from.isBlackout,
                                     isCleared: transition.from.isCleared,
@@ -498,6 +586,7 @@ struct ProgramCanvas: View {
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
                                     metalVideoPreview: metalVideoPreview,
+                                    videoTransitionOpacity: alpha.outgoing,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.old,
                                     continuingVideoPaths: continuing,
@@ -513,6 +602,7 @@ struct ProgramCanvas: View {
                                     playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
                                     metalVideoPreview: metalVideoPreview,
+                                    videoTransitionOpacity: alpha.incoming,
                                     outputScope: outputScope,
                                     transitionAudioGain: gains.new,
                                     continuingVideoPaths: continuing,
@@ -530,6 +620,7 @@ struct ProgramCanvas: View {
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
                                     metalVideoPreview: metalVideoPreview,
+                                videoTransitionOpacity: sharedBackground == nil ? alpha.outgoing : (1 - transition.progress(at: timeline.date)),
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.old,
                                 continuingVideoPaths: continuing,
@@ -546,6 +637,7 @@ struct ProgramCanvas: View {
                                 playsVideo: videoDecodingEnabled,
                                     sharedVideoPreview: sharedVideoPreview,
                                     metalVideoPreview: metalVideoPreview,
+                                videoTransitionOpacity: alpha.incoming,
                                 outputScope: outputScope,
                                 transitionAudioGain: gains.new,
                                 continuingVideoPaths: continuing,

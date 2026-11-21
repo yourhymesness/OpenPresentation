@@ -178,7 +178,15 @@ final class ShowController: ObservableObject {
         } else { cancelAutoAdvance() }
     }
 
-    @Published var selectedSlideID: UUID?
+    @Published var selectedSlideID: UUID? {
+        didSet {
+            // Pre-decode the upcoming slide's still first frames while the
+            // operator is in Preview, before the live dissolve can begin.
+            if selectedSlideID != oldValue {
+                VideoFirstFrameCache.shared.prefetch(slide: previewSlide)
+            }
+        }
+    }
     @Published var mode: OperationMode = .blind {
         didSet {
             guard mode != oldValue else { return }
@@ -489,6 +497,7 @@ final class ShowController: ObservableObject {
         // That allows a changed same-slide retake to fade from its immutable
         // on-air snapshot, while an unchanged loop remains seamless.
         let programSlide = newSlide.preparedForProgram(after: liveSlideSnapshot)
+        VideoFirstFrameCache.shared.prefetch(slide: programSlide)
         let sameSlideRetake = liveSlideID == newSlide.id && !isBlackout && !isCleared
         if sameSlideRetake, let prior = liveSlideSnapshot,
            programSlide.hasSameProgramContent(as: prior) {
@@ -517,6 +526,11 @@ final class ShowController: ObservableObject {
         // Auto or Program navigation can occur while the operator edits a
         // different slide in Blind mode. Never hijack that edit selection.
         if mode == .live { selectedSlideID = newSlide.id }
+        // Auto-advance and the Program next button can take a slide without
+        // selecting it in Preview first. Warm that next cue now, off-air.
+        if let next = programDestination(in: programSequence, offset: 1) {
+            VideoFirstFrameCache.shared.prefetch(slide: next)
+        }
         isBlackout = false
         isCleared = false
         scheduleAutoAdvance(for: newSlide)
@@ -533,6 +547,9 @@ final class ShowController: ObservableObject {
     func updateSlide(_ updated: PresentationSlide) {
         guard let index = slides.firstIndex(where: { $0.id == updated.id }) else { return }
         slides[index] = updated
+        if updated.id == selectedSlideID {
+            VideoFirstFrameCache.shared.prefetch(slide: updated)
+        }
     }
 
     func addSlide() {

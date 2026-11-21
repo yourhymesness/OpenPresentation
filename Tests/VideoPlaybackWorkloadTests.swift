@@ -58,6 +58,18 @@ import Foundation
                                                  videoPath: "/tmp/v\(index).mov"))
         }
         precondition(VideoPlaybackWorkload.visibleVideoCount(videoSlide) == 8)
+        // A reused video layer must not disappear during the incoming slide's
+        // dissolve. A new take or a different video still follows the fade.
+        let sharedPath = VideoTakePlanner.canonical("/tmp/continuous.mov")
+        precondition(VideoTransitionOpacityPolicy.opacity(
+            for: "/tmp/continuous.mov", continuingPaths: [sharedPath],
+            transitionOpacity: 0.15) == 1)
+        precondition(VideoTransitionOpacityPolicy.opacity(
+            for: "/tmp/different.mov", continuingPaths: [sharedPath],
+            transitionOpacity: 0.15) == 0.15)
+        precondition(VideoTransitionOpacityPolicy.opacity(
+            for: "/tmp/continuous.mov", continuingPaths: [],
+            transitionOpacity: 0.65) == 0.65)
         precondition(ProgramPreviewQuality.automatic.playsVideo(
             visibleVideos: 3, audienceOutputOpen: true))
         precondition(ProgramPreviewQuality.automatic.playsVideo(

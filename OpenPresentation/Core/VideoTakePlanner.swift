@@ -53,6 +53,65 @@ enum VideoTakePlanner {
     }
 }
 
+/// A continuing video is one visual stream across consecutive slide takes.
+/// Its parent slide contents may dissolve, but the retained AVPlayer layer
+/// must remain fully visible instead of fading out and snapping back in.
+enum VideoTransitionOpacityPolicy {
+    static func opacity(for path: String, continuingPaths: Set<String>,
+                        transitionOpacity: Double) -> Double {
+        if continuingPaths.contains(VideoTakePlanner.canonical(path)) { return 1 }
+        return transitionOpacity.isFinite ? min(max(transitionOpacity, 0), 1) : 0
+    }
+}
+
+/// A continuing Video Layer must live outside *both* fading slide canvases.
+/// These anchors let Program composite the content below the video, the one
+/// persistent video, then the content above it, preserving authored z-order.
+struct ContinuingVideoLayerAnchor: Identifiable {
+    let id: String
+    let fromIndex: Int
+    let toIndex: Int
+}
+
+enum ContinuingVideoLayerPlan {
+    static func anchors(from outgoing: PresentationSlide?, to incoming: PresentationSlide?,
+                        continuingPaths: Set<String>) -> [ContinuingVideoLayerAnchor] {
+        guard let outgoing, let incoming, !continuingPaths.isEmpty else { return [] }
+
+        // Match by decoder identity (path + source slot), not layer UUID:
+        // duplicating a slide creates new layer IDs but keeps the same video.
+        func videoIndices(in slide: PresentationSlide) -> [(key: String, index: Int)] {
+            var occurrences: [String: Int] = [:]
+            var result: [(key: String, index: Int)] = []
+            for (index, layer) in slide.layers.enumerated() where layer.kind == .video {
+                guard let path = layer.videoPath, !path.isEmpty else { continue }
+                let canonical = VideoTakePlanner.canonical(path)
+                let occurrence = occurrences[canonical, default: 0]
+                occurrences[canonical] = occurrence + 1
+                guard layer.isVisible, continuingPaths.contains(canonical) else { continue }
+                result.append(("\(canonical)|layer-\(occurrence)", index))
+            }
+            return result
+        }
+
+        let oldIndices = Dictionary(uniqueKeysWithValues:
+            videoIndices(in: outgoing).map { ($0.key, $0.index) })
+        let matched = videoIndices(in: incoming).compactMap { item -> ContinuingVideoLayerAnchor? in
+            guard let fromIndex = oldIndices[item.key] else { return nil }
+            return ContinuingVideoLayerAnchor(id: item.key, fromIndex: fromIndex,
+                                              toIndex: item.index)
+        }
+        // A reordering of two independent continuing videos cannot be mapped
+        // into common depth bands. Keep the ordinary dissolve in that case.
+        guard zip(matched, matched.dropFirst()).allSatisfy({ pair in
+            pair.0.fromIndex < pair.1.fromIndex
+        }) else {
+            return []
+        }
+        return matched
+    }
+}
+
 /// Pure scheduling rules: visual playback always stays at the source frame
 /// rate (AVPlayerLayer), while lightweight end/loop observers may poll slower.
 /// Fullscreen is authoritative, then Windowed, then the Program monitor.

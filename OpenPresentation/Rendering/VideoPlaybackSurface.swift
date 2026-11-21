@@ -4,6 +4,63 @@ import SwiftUI
 import CoreImage
 import CoreVideo
 
+/// A bounded, low-priority cache of the first frame of a video. The selected
+/// Preview slide is warmed before Take Live, so a new AVPlayerLayer can show
+/// this frame during a dissolve rather than appearing abruptly after decoding.
+/// No AVPlayers, playback clocks, or audio streams are created here.
+@MainActor
+final class VideoFirstFrameCache {
+    static let shared = VideoFirstFrameCache()
+
+    private let frames = NSCache<NSString, CGImage>()
+    private let decodeQueue = DispatchQueue(label: "com.openpresentation.first-video-frames", qos: .utility)
+    private var pending: [String: [(CGImage) -> Void]] = [:]
+
+    private init() {
+        frames.totalCostLimit = 72 * 1024 * 1024
+    }
+
+    func prefetch(slide: PresentationSlide?) {
+        guard let slide else { return }
+        if let path = slide.backgroundVideoPath, !path.isEmpty { _ = frame(for: path) }
+        for layer in slide.layers where layer.isVisible && layer.kind == .video {
+            if let path = layer.videoPath, !path.isEmpty { _ = frame(for: path) }
+        }
+    }
+
+    @discardableResult
+    func frame(for path: String, onReady: ((CGImage) -> Void)? = nil) -> CGImage? {
+        let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+        let cacheKey = canonical as NSString
+        if let cached = frames.object(forKey: cacheKey) { return cached }
+        guard FileManager.default.fileExists(atPath: canonical) else { return nil }
+
+        if pending[canonical] != nil {
+            if let onReady { pending[canonical]?.append(onReady) }
+            return nil
+        }
+        pending[canonical] = onReady.map { [$0] } ?? []
+        decodeQueue.async { [weak self] in
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: canonical)))
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1920, height: 1080)
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let firstFrame = try? generator.copyCGImage(at: .zero, actualTime: nil)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if let firstFrame {
+                    self.frames.setObject(firstFrame, forKey: cacheKey,
+                                          cost: firstFrame.bytesPerRow * firstFrame.height)
+                }
+                let callbacks = self.pending.removeValue(forKey: canonical) ?? []
+                if let firstFrame { callbacks.forEach { $0(firstFrame) } }
+            }
+        }
+        return nil
+    }
+}
+
 /// A SwiftUI video view is disposable. Its AVPlayer must NOT be: a slide
 /// dissolve constructs a temporary incoming canvas and then removes it.
 /// Without a retained player, the outgoing/incoming handoff starts video and
@@ -20,6 +77,7 @@ struct VideoPlaybackSurface: NSViewRepresentable {
     var audioEnabled: Bool = false
     var volume: Double = 1.0
     var contentMode: LayerContentMode = .fill
+    var transitionOpacity: Double = 1.0
     /// Audience and operator monitor have separate decoders. Exactly one
     /// scope may emit audio, and Program owns it only during rehearsal.
     var outputScope: String = "program"
@@ -36,7 +94,7 @@ struct VideoPlaybackSurface: NSViewRepresentable {
                        audioEnabled: audioEnabled,
                        volume: volume * audioGain * liveAudioMix.effectiveProgramGain,
                        preFaderGain: preFaderGain, faderGain: faderGain,
-                       contentMode: contentMode)
+                       contentMode: contentMode, transitionOpacity: transitionOpacity)
         return view
     }
 
@@ -46,7 +104,7 @@ struct VideoPlaybackSurface: NSViewRepresentable {
                        audioEnabled: audioEnabled,
                        volume: volume * audioGain * liveAudioMix.effectiveProgramGain,
                        preFaderGain: preFaderGain, faderGain: faderGain,
-                       contentMode: contentMode)
+                       contentMode: contentMode, transitionOpacity: transitionOpacity)
     }
 
     static func dismantleNSView(_ view: VideoPlaybackHostView, coordinator: ()) {
@@ -77,7 +135,7 @@ final class VideoPlaybackHostView: NSView {
     func configure(path: String, session: UUID, scope: String, sourceSlot: String, behavior: VideoEndBehavior,
                    fadeDuration: Double, audioEnabled: Bool, volume: Double,
                    preFaderGain: Double, faderGain: Double,
-                   contentMode: LayerContentMode) {
+                    contentMode: LayerContentMode, transitionOpacity: Double) {
         let newKey = VideoPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                            scope: scope, sessionID: session, sourceSlot: sourceSlot)
         let newlyMounted = key != newKey || engine == nil
@@ -97,6 +155,12 @@ final class VideoPlaybackHostView: NSView {
         // its view has been reparented to the incoming canvas. Ignore that
         // stale host rather than stealing the video view back.
         guard let engine, engine.superview === self else { return }
+        // AVPlayerLayer is hosted by AppKit and may bypass SwiftUI's opacity
+        // blending. Apply the Program timeline alpha at its actual CA root.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        engine.layer?.opacity = Float(min(max(transitionOpacity, 0), 1))
+        CATransaction.commit()
         engine.configure(path: newKey.path, behavior: behavior,
                          fadeDuration: fadeDuration, audioEnabled: audioEnabled,
                          volume: volume, preFaderGain: preFaderGain,
@@ -443,7 +507,9 @@ final class VideoPlaybackPool {
 final class VideoPlaybackNSView: NSView {
     private let videoA = AVPlayerLayer()
     private let videoB = AVPlayerLayer()
+    private let startupPoster = CALayer()
     private let blackOverlay = CALayer()
+    private var firstFrameObservation: NSKeyValueObservation?
 
     private var pathInUse: String?
     private var endBehavior: VideoEndBehavior = .loop
@@ -646,10 +712,13 @@ final class VideoPlaybackNSView: NSView {
         videoB.backgroundColor = NSColor.clear.cgColor
         videoA.opacity = 1
         videoB.opacity = 0
+        startupPoster.opacity = 0
+        startupPoster.contentsGravity = .resizeAspectFill
         blackOverlay.backgroundColor = NSColor.black.cgColor
         blackOverlay.opacity = 0
         layer?.addSublayer(videoA)
         layer?.addSublayer(videoB)
+        layer?.addSublayer(startupPoster)
         layer?.addSublayer(blackOverlay)
     }
 
@@ -657,7 +726,7 @@ final class VideoPlaybackNSView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for videoLayer in [videoA, videoB, blackOverlay] {
+        for videoLayer in [videoA, videoB, startupPoster, blackOverlay] {
             videoLayer.frame = bounds
         }
         CATransaction.commit()
@@ -677,6 +746,11 @@ final class VideoPlaybackNSView: NSView {
         }
         videoA.videoGravity = gravity
         videoB.videoGravity = gravity
+        switch contentMode {
+        case .fit: startupPoster.contentsGravity = .resizeAspect
+        case .fill: startupPoster.contentsGravity = .resizeAspectFill
+        case .stretch: startupPoster.contentsGravity = .resize
+        }
         let adjustedFade = min(max(fadeDuration, 0.2), 3.0)
         let adjustedVolume = Float(min(max(volume, 0), 1))
 
@@ -714,6 +788,7 @@ final class VideoPlaybackNSView: NSView {
         endBehavior = behavior
         primaryIsA = true
         setAlphas(primary: 1, standby: 0, black: 0)
+        showStartupPoster(for: path)
         let url = URL(fileURLWithPath: path)
 
         if behavior == .loop {
@@ -730,6 +805,7 @@ final class VideoPlaybackNSView: NSView {
             loopQueue = queue
             primary = queue
             videoA.player = queue
+            observeFirstVisibleFrame()
             updateVideoAudioTracks()
             queue.play()
             return
@@ -753,7 +829,52 @@ final class VideoPlaybackNSView: NSView {
         updateMeterParameters()
         updateVideoAudioTracks()
         observePrimary(player)
+        observeFirstVisibleFrame()
         player.play()
+    }
+
+    private func showStartupPoster(for path: String) {
+        let cached = VideoFirstFrameCache.shared.frame(for: path) { [weak self] image in
+            guard let self, self.pathInUse == path,
+                  !self.foreground.isReadyForDisplay else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.startupPoster.contents = image
+            self.startupPoster.opacity = 1
+            CATransaction.commit()
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        startupPoster.removeAllAnimations()
+        startupPoster.contents = cached
+        startupPoster.opacity = cached == nil ? 0 : 1
+        CATransaction.commit()
+    }
+
+    private func observeFirstVisibleFrame() {
+        firstFrameObservation?.invalidate()
+        let observedLayer = foreground
+        firstFrameObservation = observedLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) {
+            [weak self, weak observedLayer] _, _ in
+            DispatchQueue.main.async { [weak self, weak observedLayer] in
+                guard let self, let observedLayer, self.foreground === observedLayer,
+                      observedLayer.isReadyForDisplay else { return }
+                self.dismissStartupPoster()
+            }
+        }
+    }
+
+    private func dismissStartupPoster() {
+        guard startupPoster.opacity > 0 else { return }
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = startupPoster.presentation()?.opacity ?? startupPoster.opacity
+        animation.toValue = 0
+        animation.duration = 0.12
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        startupPoster.opacity = 0
+        CATransaction.commit()
+        startupPoster.add(animation, forKey: "first-visible-video-frame")
     }
 
     /// Return an acquired decoded buffer from the live audience AVPlayerItem.
@@ -966,6 +1087,11 @@ final class VideoPlaybackNSView: NSView {
     }
 
     func stop() {
+        firstFrameObservation?.invalidate()
+        firstFrameObservation = nil
+        startupPoster.removeAllAnimations()
+        startupPoster.contents = nil
+        startupPoster.opacity = 0
         releaseSharedPreviewOutput()
         suspended = false
         userPaused = false
@@ -1009,17 +1135,20 @@ struct SharedVideoPreviewSurface: NSViewRepresentable {
     let playbackSessionID: UUID
     let sourceSlot: String
     let contentMode: LayerContentMode
+    var transitionOpacity: Double = 1.0
 
     func makeNSView(context: Context) -> SharedVideoSnapshotView {
         let view = SharedVideoSnapshotView(frame: .zero)
         view.configure(path: path, sessionID: playbackSessionID,
-                       sourceSlot: sourceSlot, mode: contentMode)
+                       sourceSlot: sourceSlot, mode: contentMode,
+                       transitionOpacity: transitionOpacity)
         return view
     }
 
     func updateNSView(_ view: SharedVideoSnapshotView, context: Context) {
         view.configure(path: path, sessionID: playbackSessionID,
-                       sourceSlot: sourceSlot, mode: contentMode)
+                       sourceSlot: sourceSlot, mode: contentMode,
+                       transitionOpacity: transitionOpacity)
     }
 
     static func dismantleNSView(_ view: SharedVideoSnapshotView, coordinator: ()) {
@@ -1052,7 +1181,12 @@ final class SharedVideoSnapshotView: NSView {
     }
 
     func configure(path: String, sessionID: UUID,
-                   sourceSlot: String, mode: LayerContentMode) {
+                   sourceSlot: String, mode: LayerContentMode,
+                   transitionOpacity: Double) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.opacity = Float(min(max(transitionOpacity, 0), 1))
+        CATransaction.commit()
         switch mode {
         case .fit: layer?.contentsGravity = .resizeAspect
         case .fill: layer?.contentsGravity = .resizeAspectFill
@@ -1064,13 +1198,24 @@ final class SharedVideoSnapshotView: NSView {
         guard streamKey != key else { return }
         unsubscribe()
         streamKey = key
-        layer?.contents = nil
+        let cached = VideoFirstFrameCache.shared.frame(for: key.path) { [weak self] image in
+            guard let self, self.streamKey == key, !self.hasMovingFrame else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.layer?.contents = image
+            CATransaction.commit()
+        }
+        hasMovingFrame = false
+        layer?.contents = cached
         SharedVideoPreviewHub.shared.subscribe(self)
     }
+
+    private var hasMovingFrame = false
 
     fileprivate func present(_ image: CGImage) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        hasMovingFrame = true
         layer?.contents = image
         CATransaction.commit()
     }
@@ -1078,6 +1223,7 @@ final class SharedVideoSnapshotView: NSView {
     func unsubscribe() {
         SharedVideoPreviewHub.shared.unsubscribe(identity)
         streamKey = nil
+        hasMovingFrame = false
         layer?.contents = nil
     }
 }
