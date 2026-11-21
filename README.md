@@ -1,5 +1,11 @@
 # OpenPresentation v0.4.13 Alpha — Persistent Show Audio Bus
 
+**Next on the roadmap:** v0.5 focuses on Metal-based shared rendering,
+performance profiling, and multi-output/edge-blending foundations. The Stream
+Deck plugin and authenticated local control interface are now planned for
+v0.6; NDI/DeckLink follow later. See [ROADMAP.md](ROADMAP.md) for the staged
+milestones and compatibility gates.
+
 **Output changes no longer hand off audio between video players.** One persistent audio bus, mounted independently of Fullscreen, Windowed, and reduced Program previews, owns video soundtracks and audio-only cues for the duration of each media take. Output windows decode the **picture only**, so opening/closing an output cannot restart the sound, produce two copies, or swap the PCM meter connection. New video windows align their picture playhead to the ongoing audio bus when a soundtrack is present. Cue/master gains, mute, transitions, audio settings, and video transport still apply.
 
 This is a larger alpha playback change. Video soft loops use the audio bus's standard gap-minimized loop rather than the old dual-player overlapping audio fade; validate loops, one-shots, video end fades, layered audio and A/V sync on your Mac before a production show. The actual audio playback hardware has not been qualified by CI.

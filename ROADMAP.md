@@ -1,3 +1,79 @@
+# OpenPresentation Roadmap
+
+**Current alpha: v0.4.13.** The persistent show-audio bus and seamless output
+handoff are implemented and have been tested on macOS hardware. The priorities
+below were reordered to put Metal rendering ahead of Stream Deck controls.
+
+## v0.5.x — Metal rendering and multi-output foundation (next)
+
+**Goal:** Render one synchronized show frame and present it efficiently to the
+Program monitor and multiple audience destinations. Preserve the continuous
+show-audio bus introduced in v0.4.13.
+
+- **v0.5.0 — Measure and prove the rendering path.** Instrument frame timing,
+  missed display deadlines, decoder/frame availability, memory pressure, and
+  texture transfers. Benchmark real 1-, 4-, and 8-video slides on Apple Silicon,
+  including the M5 Pro and existing M1 Pro test machines, with output windows
+  open and closed. Build a Metal proof of concept that composites video and
+  static layers without changing the on-air renderer by default.
+- **v0.5.1 — Shared GPU compositor.** Move from independent window-specific
+  video rendering toward a single frame source per media take, shared across
+  destinations. Use AVFoundation's decoded pixel buffers and GPU textures,
+  preserving aspect modes, alpha, z-order, text, shapes, images, GIFs, fades,
+  and the authored canvas resolution. Keep the original renderer available as
+  a compatibility fallback until visual parity and timing are verified.
+- **v0.5.2+ — Multiple canvases and projection mapping.** Independent output
+  assignments, slices/crops of a larger canvas, position/rotation/scale,
+  overlap guides, edge blending and calibration. Add output-safe handling of
+  monitor changes and disconnections; keep the operator display recoverable.
+
+**Release gates:** No audio restart when toggling outputs; no slide/show-file
+format regressions; predictable transitions; measured output-frame behavior
+under heavy video load; and extended local hardware testing. Metal is not a
+promise that every video codec or output configuration will run smoothly:
+profiling and fallback modes remain essential.
+
+## v0.6.x — Stream Deck and external show control
+
+- Add a local-only, authenticated control interface sharing the existing
+  ShowController commands (Take, Next/Previous, Clear, Blackout, media transport,
+  collection selection) and publishing show-state feedback.
+- Implement a companion Elgato Stream Deck plugin with configurable actions,
+  stateful button indicators, safe reconnection and explicit connection errors.
+- The local control interface must be testable without physical Stream Deck
+  hardware. Consider other control surfaces only after the command protocol is
+  stable.
+
+## v0.7.x — Professional output protocols
+
+- Add NDI output after the shared-renderer timing and pixel format are stable.
+- Add DeckLink/SDI output with explicit device discovery and format negotiation.
+- Test failure recovery and output synchronization with actual supported
+  hardware before advertising show-ready compatibility.
+
+## Later — Cross-platform architecture
+
+- Keep show models, transport decisions, transition planning and output
+  configuration independent of AppKit/SwiftUI wherever practical.
+- Design a renderer abstraction that can eventually target Metal on macOS and
+  other graphics APIs on Windows/Linux, without assuming the macOS backend is
+  portable unchanged.
+
+## Engineering quality across all milestones
+
+- [x] GitHub Actions macOS compile and portable model checks
+- [x] Crash recovery/autosaving and Program audio metering
+- [x] Persistent audio bus independent of output window lifecycle
+- [ ] Instruments profiling, frame-drop telemetry and GPU workload baselines
+- [ ] Extended audio/video/multi-output soak testing
+- [ ] Automated UI coverage, improved Undo/Redo and signed/notarized builds
+
+This is a planning document, not a commitment to specific release dates.
+
+---
+
+# Earlier milestones and historical planning notes
+
 ## v0.4.2 — Blind Editor Zoom and Text Outlines (Implemented)
 
 - Editor-only wheel/pinch/preset/Zoom to Fill; scroll an enlarged slide.
@@ -24,9 +100,9 @@
 - Hover-to-preview on the selected text layer directly on the Blind canvas; click to apply with undo.
 - Visual-only previews do not change saved show data or Program.
 
-# Roadmap
+# Earlier editor and canvas backlog
 
-## v0.3.x — Editor (current)
+## v0.3.x — Editor (historical)
 
 - [x] Eight free-resize handles for selected visual layers
 - [x] Optional aspect-ratio lock
@@ -35,14 +111,14 @@
 - [x] Font browser with sample names drawn in their actual typefaces and non-destructive hover preview
 - [ ] More granular group transforms, alignment/distribution tools
 
-## v0.4 — Variable-size project canvas
+## v0.4 — Variable-size project canvas (implemented for new shows)
 
 - [ ] New-show dialog with 16:9, 4:3, portrait, square, ultrawide, and custom pixel presets
 - [ ] Save canvas width/height in show metadata with backwards compatibility
 - [ ] Resize editor, output, thumbnails, renderer and hit testing to respect saved canvas size
 - [ ] Controlled existing-show canvas resizing, including layer coordinate conversion
 
-## Stability and production readiness
+## Original stability and production readiness checklist
 
 - [ ] Build and test on macOS via GitHub Actions
 - [ ] Extended audio/video/output soak tests, including windowed/fullscreen transitions
