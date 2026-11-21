@@ -1,4 +1,16 @@
-# OpenPresentation v0.5.0 Alpha — Experimental Metal Program Preview
+# OpenPresentation v0.5.0.1 Alpha — Experimental Metal Preview Safety Update
+
+**After a reported M5 Pro crash in the first Metal prototype:** GPU rendering
+now uses a private writable staging texture before presenting, allows only one
+in-flight frame per view, retains submitted resources until command completion,
+and stops the experimental preview on a reported GPU command failure. The
+**Metal 30 FPS · Test** choice is also session-only; relaunching after a crash
+returns to the safe Auto preview. This is defensive hardening, **not a verified
+fix for the reported runtime crash**; a macOS debugger backtrace and another
+careful hardware test are still required. Audience AVPlayerLayers and the
+persistent audio bus remain unchanged.
+
+## Previous: v0.5.0 Alpha — Metal Program Preview Prototype
 
 **Metal rendering experiment (off-air):** With a Windowed or Fullscreen audience
 output running, choose **Preview → Metal 30 FPS · Test** in the Program monitor.

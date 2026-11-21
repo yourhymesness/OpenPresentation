@@ -1,3 +1,10 @@
+## v0.5.0.1-alpha — Defensive Metal preview submission hardening
+
+- Addressed a reported runtime stop inside the experimental Metal Program renderer. Instead of asking Core Image to write directly into a live drawable, use a cached shader-writable staging texture followed by a blit into the drawable.
+- Bound each preview layer to one outstanding GPU command. Retain its decoded frame and staging texture through GPU completion, and submit only the newest pending frame after completion. A reported command failure disables that view's experimental renderer and records an error in Frame Stats.
+- Metal Preview is now **session-only**. Previous alpha preferences selecting the test mode fall back to Auto on launch, preventing an automatic restart into the crashing experiment. The audience renderer and audio bus are untouched.
+- **Not yet verified on the affected M5 Pro**. This is a guardrail patch, not a proven root-cause correction; collect the Xcode LLDB backtrace if another stop occurs.
+
 ## v0.5.0-alpha — Metal Preview Prototype and Frame Diagnostics
 
 - Added an **experimental, opt-in 30 FPS Metal Program video preview**, sourced from the audience output's existing AVPlayer decoded frames. It does not create additional video players or touch the audience output renderer or persistent show-audio bus.

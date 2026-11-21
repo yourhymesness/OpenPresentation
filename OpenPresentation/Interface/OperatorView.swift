@@ -78,6 +78,9 @@ struct OperatorView: View {
     @AppStorage("liveAppearance") private var liveAppearance = LiveAppearance.system.rawValue
     @AppStorage("liveSlideViewMode") private var liveSlideViewMode = "icons"
     @AppStorage("programPreviewQuality") private var programPreviewQuality = ProgramPreviewQuality.automatic.rawValue
+    // Experimental GPU mode is deliberately session-only: a crash while
+    // testing it must never cause an automatic retry on next app launch.
+    @State private var experimentalMetalEnabled = false
     @StateObject private var previewHealth = ProgramPreviewHealthMonitor()
     @State private var showingRenderDiagnostics = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -104,7 +107,10 @@ struct OperatorView: View {
 
     private var isBlind: Bool { show.mode == .blind }
     private var previewQuality: ProgramPreviewQuality {
-        ProgramPreviewQuality(rawValue: programPreviewQuality) ?? .automatic
+        if experimentalMetalEnabled { return .metalFrames }
+        let saved = ProgramPreviewQuality(rawValue: programPreviewQuality) ?? .automatic
+        // Recover safely if a prior alpha persisted the experimental mode.
+        return saved == .metalFrames ? .automatic : saved
     }
 
     private var visibleProgramVideoCount: Int {
@@ -841,7 +847,14 @@ struct OperatorView: View {
                 }
                 Menu {
                     ForEach(ProgramPreviewQuality.allCases) { quality in
-                        Button(quality.rawValue) { programPreviewQuality = quality.rawValue }
+                        Button(quality.rawValue) {
+                            if quality == .metalFrames {
+                                experimentalMetalEnabled = true
+                            } else {
+                                experimentalMetalEnabled = false
+                                programPreviewQuality = quality.rawValue
+                            }
+                        }
                     }
                 } label: {
                     Label("Preview: \(previewQuality.rawValue)", systemImage: "gauge.medium")

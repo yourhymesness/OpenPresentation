@@ -41,6 +41,7 @@ struct MetalPreviewStreamKey: Hashable {
 final class MetalPreviewDiagnostics: ObservableObject {
     static let shared = MetalPreviewDiagnostics()
     @Published private(set) var latest = RenderTimingWindow().summary(at: 0)
+    @Published private(set) var gpuSubmissionErrors = 0
     private(set) var lastMetalTick: TimeInterval = 0
 
     private var timing = RenderTimingWindow(expectedFramesPerSecond: 30)
@@ -61,6 +62,10 @@ final class MetalPreviewDiagnostics: ObservableObject {
     func recordHeartbeat(overshootSeconds: Double, at now: TimeInterval) {
         timing.recordHeartbeat(overshootSeconds: overshootSeconds, at: now)
         publishIfNeeded(at: now)
+    }
+
+    func recordGPUFailure() {
+        gpuSubmissionErrors += 1
     }
 
     private func publishIfNeeded(at now: TimeInterval) {
@@ -91,6 +96,10 @@ struct MetalPreviewDiagnosticsPanel: View {
                    ? String(format: "%.2f / %.2f ms", stats.meanEncodeMS, stats.p95EncodeMS) : "—")
             metric("Operator heartbeat overshoot (max)",
                    String(format: "%.0f ms", stats.maxHeartbeatOvershootMS))
+            if diagnostics.gpuSubmissionErrors > 0 {
+                Text("Metal command failed; experimental preview stopped to protect the show. Switch Preview to Auto.")
+                    .foregroundStyle(.red)
+            }
             Divider()
             Text("Frame availability and CPU command-encoding time are measured here; these are not GPU utilization, actual scan-out, or hardware decode-drop counters. Audience output uses the original renderer.")
                 .font(.caption2)
@@ -121,6 +130,11 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
     private var latestBuffer: CVPixelBuffer?
     private var commandQueue: MTLCommandQueue?
     private var imageContext: CIContext?
+    private var stagingTexture: MTLTexture?
+    private var frameInFlight = false
+    private var gpuFailed = false
+    private var frameRevision = 0
+    private var submittedRevision = 0
     private let workingColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
     override init(frame frameRect: NSRect, device: MTLDevice?) {
@@ -161,7 +175,11 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
 
     func receive(_ buffer: CVPixelBuffer) {
         latestBuffer = buffer
-        draw()
+        frameRevision &+= 1
+        // A single drawable may have multiple pending render requests at 30
+        // FPS. Keep the newest frame but never queue more GPU work until the
+        // previous submission for this view has actually completed.
+        if !frameInFlight && !gpuFailed { draw() }
     }
 
     func unsubscribe() {
@@ -183,14 +201,38 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
     }
 
     private func drawCurrentFrame() {
-        guard let buffer = latestBuffer, let drawable = currentDrawable,
+        guard !frameInFlight, !gpuFailed, frameRevision != submittedRevision,
+              streamKey != nil, window != nil,
+              let buffer = latestBuffer, let drawable = currentDrawable,
               let commandQueue, let commandBuffer = commandQueue.makeCommandBuffer(),
-              let imageContext else { return }
+              let imageContext, let device else { return }
         let started = ProcessInfo.processInfo.systemUptime
         let source = CIImage(cvPixelBuffer: buffer)
-        let target = CGRect(x: 0, y: 0, width: drawableSize.width, height: drawableSize.height)
+        let target = CGRect(x: 0, y: 0,
+                            width: drawable.texture.width, height: drawable.texture.height)
         guard source.extent.width > 0, source.extent.height > 0,
               target.width > 0, target.height > 0 else { return }
+
+        // Core Image's compute writes go into a private shader-writable
+        // texture, never directly into the CAMetalLayer drawable. The latter
+        // can have presentation-specific usage restrictions. One cached
+        // staging texture per view and at most one in-flight submission keeps
+        // texture memory bounded even when sampling outruns the GPU.
+        let staging: MTLTexture
+        if let cached = stagingTexture,
+           cached.width == drawable.texture.width,
+           cached.height == drawable.texture.height {
+            staging = cached
+        } else {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: colorPixelFormat, width: drawable.texture.width,
+                height: drawable.texture.height, mipmapped: false)
+            descriptor.usage = [.shaderRead, .shaderWrite]
+            descriptor.storageMode = .private
+            guard let created = device.makeTexture(descriptor: descriptor) else { return }
+            stagingTexture = created
+            staging = created
+        }
 
         let sx = target.width / source.extent.width
         let sy = target.height / source.extent.height
@@ -208,8 +250,35 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
         let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0))
             .cropped(to: target)
         let frame = centered.composited(over: black).cropped(to: target)
-        imageContext.render(frame, to: drawable.texture, commandBuffer: commandBuffer,
+        imageContext.render(frame, to: staging, commandBuffer: commandBuffer,
                             bounds: target, colorSpace: workingColorSpace)
+        guard let blit = commandBuffer.makeBlitCommandEncoder() else { return }
+        blit.copy(from: staging, sourceSlice: 0, sourceLevel: 0,
+                  sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                  sourceSize: MTLSize(width: staging.width, height: staging.height, depth: 1),
+                  to: drawable.texture, destinationSlice: 0, destinationLevel: 0,
+                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        blit.endEncoding()
+        submittedRevision = frameRevision
+        frameInFlight = true
+        commandBuffer.addCompletedHandler { [weak self, staging, buffer] completed in
+            // Keep both resources alive until Metal has finished consuming
+            // them, even if the slide changes or its SwiftUI view unmounts.
+            _ = staging
+            _ = buffer
+            let failed = completed.status == .error
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.frameInFlight = false
+                if failed {
+                    self.gpuFailed = true
+                    MetalPreviewDiagnostics.shared.recordGPUFailure()
+                    self.unsubscribe()
+                } else if self.streamKey != nil && self.frameRevision != self.submittedRevision {
+                    self.draw()
+                }
+            }
+        }
         commandBuffer.present(drawable)
         commandBuffer.commit()
         MetalPreviewDiagnostics.shared.recordEncode(
