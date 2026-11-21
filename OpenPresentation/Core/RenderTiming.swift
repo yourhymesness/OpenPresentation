@@ -46,8 +46,10 @@ struct RenderTimingWindow {
         // Sleep/wake, first subscription, or a temporary pause should not
         // appear as hundreds of missed video deadlines.
         let gap = previousTick.map { time - $0 } ?? 0
+        // Round to the nearest expected tick: binary floating-point may
+        // represent an exact two-frame gap as 1.999999999 intervals.
         let missed = gap > expectedInterval * 1.5 && gap < 2
-            ? max(0, Int((gap / expectedInterval).rounded(.down)) - 1) : 0
+            ? max(0, Int((gap / expectedInterval).rounded()) - 1) : 0
         ticks.append(Tick(time: time, requested: max(0, requested),
                           delivered: min(max(0, delivered), max(0, requested)),
                           missed: missed))
