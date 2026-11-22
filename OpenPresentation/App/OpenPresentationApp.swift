@@ -575,6 +575,7 @@ private struct OutputSettingsView: View {
     @ObservedObject var output: OutputManager
     @AppStorage("programPreviewQuality") private var programPreviewQuality = ProgramPreviewQuality.automatic.rawValue
     @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
+    @AppStorage("metalTargetFPS") private var metalTargetFPS = MetalVideoFrameRate.standard.rawValue
 
     var body: some View {
         Form {
@@ -604,11 +605,12 @@ private struct OutputSettingsView: View {
             Section("Program Monitor") {
                 Picker("Video preview renderer", selection: $programPreviewQuality) {
                     ForEach(ProgramPreviewQuality.allCases) { quality in
-                        Text(quality.rawValue).tag(quality.rawValue)
+                        Text(quality == .metalFrames ? "Metal video (experimental)" : quality.rawValue)
+                            .tag(quality.rawValue)
                     }
                 }
                 Text("Auto is recommended. This changes only the operator's Program preview, " +
-                     "not the audience video or audio. Shared 12 FPS and Metal 30 FPS · Test " +
+                     "not the audience video or audio. Shared 12 FPS and Metal preview " +
                      "reuse audience-decoded frames and need an open audience output.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -616,11 +618,19 @@ private struct OutputSettingsView: View {
             }
 
             Section("Experimental Audience Output") {
-                Toggle("Render audience video layers with Metal", isOn: $experimentalMetalAudienceVideo)
-                Text("Off is the stable AVFoundation renderer. On, the audience's video layers " +
-                     "use Metal at up to 30 FPS while audio and other slide content keep their " +
-                     "existing renderer. Test with Windowed Output first; turn this off if " +
-                     "you notice black frames, delayed video, or instability.")
+                Picker("Audience video renderer", selection: $experimentalMetalAudienceVideo) {
+                    Text("Native (recommended)").tag(false)
+                    Text("Metal (experimental)").tag(true)
+                }
+                Picker("Metal video frame rate", selection: $metalTargetFPS) {
+                    ForEach(MetalVideoFrameRate.allCases) { rate in
+                        Text("\(rate.rawValue) FPS").tag(rate.rawValue)
+                    }
+                }
+                Text("Frame rate applies to Metal video layers in the Program preview and audience " +
+                     "outputs; native AVFoundation output follows source/display timing. " +
+                     "Metal currently accelerates video layers only, not entire slides or transitions. " +
+                     "Test with Windowed Output first; switch back to Native if stuttering occurs.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

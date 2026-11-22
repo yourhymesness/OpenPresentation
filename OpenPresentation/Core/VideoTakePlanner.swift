@@ -163,6 +163,20 @@ enum ProgramPreviewRenderMode {
     case native, sharedFrames, metalFrames, placeholder
 }
 
+/// Preview/audience Metal video sampling budget. The native AVFoundation path
+/// follows its source and display timing independently of this preference.
+enum MetalVideoFrameRate: Int, CaseIterable, Identifiable {
+    case cinematic = 24
+    case standard = 30
+    case smooth = 60
+
+    var id: Int { rawValue }
+
+    static func validated(_ value: Int) -> Int {
+        Self(rawValue: value)?.rawValue ?? Self.standard.rawValue
+    }
+}
+
 enum SharedVideoPreviewPolicy {
     static let framesPerSecond: Double = 12
     static let maximumImageDimension: Double = 360

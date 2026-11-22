@@ -48,8 +48,16 @@ final class MetalPreviewDiagnostics: ObservableObject {
     private(set) var lastMetalTick: TimeInterval = 0
 
     private var timing = RenderTimingWindow(expectedFramesPerSecond: 30)
+    private var configuredFPS = 30
     private var lastPublication: TimeInterval = 0
     private init() {}
+
+    func configure(frameRate: Int) {
+        guard configuredFPS != frameRate else { return }
+        configuredFPS = frameRate
+        timing = RenderTimingWindow(expectedFramesPerSecond: Double(frameRate))
+        lastPublication = 0
+    }
 
     func recordTick(at now: TimeInterval, requested: Int, delivered: Int) {
         timing.recordTick(at: now, requested: requested, delivered: delivered)
@@ -77,12 +85,13 @@ final class MetalPreviewDiagnostics: ObservableObject {
 struct MetalPreviewDiagnosticsPanel: View {
     @ObservedObject private var diagnostics = MetalPreviewDiagnostics.shared
     @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
+    @AppStorage("metalTargetFPS") private var metalTargetFPS = MetalVideoFrameRate.standard.rawValue
 
     var body: some View {
         let stats = diagnostics.latest
         let running = ProcessInfo.processInfo.systemUptime - diagnostics.lastMetalTick < 2
         VStack(alignment: .leading, spacing: 7) {
-            Text("Metal Video Layers · 10-second window")
+            Text("Metal Video Layers · \(MetalVideoFrameRate.validated(metalTargetFPS)) FPS target · 10-second window")
                 .font(.headline)
             if !running {
                 Text("Open an audience output and enable Metal Program preview or " +
@@ -343,9 +352,8 @@ private final class MetalPreviewDisplayClock: @unchecked Sendable {
     deinit { stop() }
 }
 
-/// Samples each unique live audience source once per 30 Hz preview interval.
-/// The display link may notify at 60/120 Hz, but the preview remains capped
-/// at 30 Hz until the compositor can encode all layers in one pass.
+/// Samples each unique audience source at the requested Metal video rate.
+/// A shared compositor is still needed to encode all layers in one pass.
 @MainActor
 final class MetalVideoPreviewHub {
     static let shared = MetalVideoPreviewHub()
@@ -371,7 +379,7 @@ final class MetalVideoPreviewHub {
             }
             // Headless displays and some remote desktop sessions cannot
             // create CVDisplayLink. Keep the original timing path available.
-            let next = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
+            let next = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.sampleIfDue() }
             }
             next.tolerance = 0.005
@@ -395,8 +403,10 @@ final class MetalVideoPreviewHub {
 
     private func sampleIfDue() {
         let now = ProcessInfo.processInfo.systemUptime
+        let fps = MetalVideoFrameRate.validated(UserDefaults.standard.integer(forKey: "metalTargetFPS"))
+        MetalPreviewDiagnostics.shared.configure(frameRate: fps)
         // Small slack accommodates 59.94 Hz and display-link scheduling jitter.
-        guard lastSampleTime == 0 || now - lastSampleTime >= (1.0 / 30.0) * 0.90 else { return }
+        guard lastSampleTime == 0 || now - lastSampleTime >= (1.0 / Double(fps)) * 0.90 else { return }
         lastSampleTime = now
         sample()
     }
