@@ -131,8 +131,30 @@ struct MetalPreviewDiagnosticsPanel: View {
     }
 }
 
-/// The Metal view owns neither AVPlayer nor audio. A shared 30 Hz sampler
-/// provides live CVPixelBuffers to any visible layers that use the same take.
+/// All experimental video layers use the same GPU device, command queue and
+/// Core Image context. During a dissolve the outgoing and incoming surfaces
+/// therefore do not each construct their own expensive CI rendering context.
+/// This is shared GPU infrastructure, not yet a single-pass slide compositor.
+@MainActor
+private final class MetalVideoRenderResources {
+    static let shared = MetalVideoRenderResources()
+    let device: MTLDevice?
+    let queue: MTLCommandQueue?
+    let imageContext: CIContext?
+    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
+    private init() {
+        let device = MTLCreateSystemDefaultDevice()
+        self.device = device
+        queue = device?.makeCommandQueue()
+        imageContext = device.map {
+            CIContext(mtlDevice: $0, options: [.cacheIntermediates: false])
+        }
+    }
+}
+
+/// The Metal view owns neither AVPlayer nor audio. One shared sampler
+/// provides live CVPixelBuffers to visible layers of the same take.
 @MainActor
 final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
     let identity = UUID()
@@ -141,18 +163,14 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
     private var latestBuffer: CVPixelBuffer?
     private let startupPoster = CALayer()
     private var hasLiveFrame = false
-    private var commandQueue: MTLCommandQueue?
-    private var imageContext: CIContext?
-    private let workingColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-
     override init(frame frameRect: NSRect, device: MTLDevice?) {
-        super.init(frame: frameRect, device: device ?? MTLCreateSystemDefaultDevice())
+        super.init(frame: frameRect, device: MetalVideoRenderResources.shared.device ?? device)
         setupMetal()
     }
 
     required init(coder: NSCoder) {
         super.init(coder: coder)
-        self.device = MTLCreateSystemDefaultDevice()
+        self.device = MetalVideoRenderResources.shared.device
         setupMetal()
     }
 
@@ -167,10 +185,6 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
         isPaused = true
         enableSetNeedsDisplay = false
         delegate = self
-        if let device {
-            commandQueue = device.makeCommandQueue()
-            imageContext = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
-        }
     }
 
     override func layout() {
@@ -256,9 +270,10 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
     }
 
     private func drawCurrentFrame() {
+        let resources = MetalVideoRenderResources.shared
         guard let buffer = latestBuffer, let drawable = currentDrawable,
-              let commandQueue, let commandBuffer = commandQueue.makeCommandBuffer(),
-              let imageContext else { return }
+              let commandBuffer = resources.queue?.makeCommandBuffer(),
+              let imageContext = resources.imageContext else { return }
         let started = ProcessInfo.processInfo.systemUptime
         let source = CIImage(cvPixelBuffer: buffer)
         let target = CGRect(x: 0, y: 0, width: drawableSize.width, height: drawableSize.height)
@@ -282,7 +297,7 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
             .cropped(to: target)
         let frame = centered.composited(over: black).cropped(to: target)
         imageContext.render(frame, to: drawable.texture, commandBuffer: commandBuffer,
-                            bounds: target, colorSpace: workingColorSpace)
+                            bounds: target, colorSpace: resources.colorSpace)
         commandBuffer.present(drawable)
         if !hasLiveFrame {
             let presentedKey = streamKey
