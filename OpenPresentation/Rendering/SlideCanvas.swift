@@ -668,32 +668,37 @@ struct ProgramCanvas: View {
 
     var body: some View {
         TimelineView(.animation(paused: controller.activeTransition == nil)) { timeline in
+            let transition = controller.activeTransition
+            let useVideoCompositor = compositorEnabled && canComposite(controller.liveSlide) &&
+                (transition == nil || (transition?.style == .dissolve &&
+                    canComposite(transition?.from.slide) && canComposite(transition?.to.slide)))
             ZStack {
                 // Physical displays show black for transparency. The slide
                 // canvas itself retains alpha for future keyed output.
                 Color.black
-                if compositorEnabled, let transition = controller.activeTransition,
-                   transition.style == .dissolve,
-                   canComposite(transition.from.slide), canComposite(transition.to.slide) {
-                    decoderHost(transition.from.slide, sessions: transition.from.videoSessions,
-                                blank: transition.from.isBlackout || transition.from.isCleared)
-                    decoderHost(transition.to.slide, sessions: transition.to.videoSessions,
-                                blank: transition.to.isBlackout || transition.to.isCleared)
-                    metalCompositedVideo(
-                        compositeScene(transition.from.slide, sessions: transition.from.videoSessions,
-                                       blank: transition.from.isBlackout || transition.from.isCleared),
-                        incoming: compositeScene(transition.to.slide, sessions: transition.to.videoSessions,
-                                                 blank: transition.to.isBlackout || transition.to.isCleared),
-                        progress: transition.progress(at: timeline.date))
-                } else if compositorEnabled && controller.activeTransition == nil &&
-                          canComposite(controller.liveSlide) {
+                if useVideoCompositor {
+                    // Keep the incoming/live decoder host at the same SwiftUI
+                    // identity before, during and after a dissolve. Rebuilding
+                    // it at completion suspends the player and can visibly
+                    // restart a clip even when the session UUID is unchanged.
                     decoderHost(controller.liveSlide, sessions: controller.liveVideoSessions,
                                 blank: controller.isBlackout || controller.isCleared)
+                    if let transition {
+                        decoderHost(transition.from.slide, sessions: transition.from.videoSessions,
+                                    blank: transition.from.isBlackout || transition.from.isCleared)
+                    }
                     metalCompositedVideo(
-                        compositeScene(controller.liveSlide, sessions: controller.liveVideoSessions,
-                                       blank: controller.isBlackout || controller.isCleared),
-                        incoming: nil, progress: 1)
-                } else if let transition = controller.activeTransition {
+                        transition.map {
+                            compositeScene($0.from.slide, sessions: $0.from.videoSessions,
+                                           blank: $0.from.isBlackout || $0.from.isCleared)
+                        } ?? compositeScene(controller.liveSlide, sessions: controller.liveVideoSessions,
+                                            blank: controller.isBlackout || controller.isCleared),
+                        incoming: transition.map {
+                            compositeScene($0.to.slide, sessions: $0.to.videoSessions,
+                                           blank: $0.to.isBlackout || $0.to.isCleared)
+                        },
+                        progress: transition?.progress(at: timeline.date) ?? 1)
+                } else if let transition {
                     let alpha = transition.opacities(at: timeline.date)
                     let gains = audioGains(for: transition, at: timeline.date)
                     let continuing = Set(transition.to.videoSessions.compactMap { path, session in
