@@ -1,13 +1,14 @@
 import AppKit
 import AVFoundation
 import CoreImage
+import CoreVideo
 import MetalKit
 import SwiftUI
 
-/// v0.5.0 experimental renderer. It draws audience-decoded frames into a
-/// Metal-backed Program preview, without replacing the live audience output
-/// or allocating any additional AVPlayers. This is a per-layer prototype,
-/// not yet the shared multi-output compositor planned for v0.5.1.
+/// Metal video surface backed by audience-decoded frames, without allocating
+/// additional AVPlayers. Normally used for the operator Program preview; an
+/// opt-in audience experiment may also use it for video layers. This is still
+/// a per-layer renderer, not a shared full-frame output compositor.
 struct MetalVideoPreviewSurface: NSViewRepresentable {
     let path: String
     let playbackSessionID: UUID
@@ -75,15 +76,17 @@ final class MetalPreviewDiagnostics: ObservableObject {
 
 struct MetalPreviewDiagnosticsPanel: View {
     @ObservedObject private var diagnostics = MetalPreviewDiagnostics.shared
+    @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
 
     var body: some View {
         let stats = diagnostics.latest
         let running = ProcessInfo.processInfo.systemUptime - diagnostics.lastMetalTick < 2
         VStack(alignment: .leading, spacing: 7) {
-            Text("Metal Program Preview · 10-second window")
+            Text("Metal Video Layers · 10-second window")
                 .font(.headline)
             if !running {
-                Text("Select Metal 30 FPS and open an audience output to collect frames.")
+                Text("Open an audience output and enable Metal Program preview or " +
+                     "experimental audience video rendering to collect frames.")
                     .foregroundStyle(.secondary)
             }
             metric("Frame sample ticks", "\(running ? stats.ticks : 0)")
@@ -95,7 +98,12 @@ struct MetalPreviewDiagnosticsPanel: View {
             metric("Operator heartbeat overshoot (max)",
                    String(format: "%.0f ms", stats.maxHeartbeatOvershootMS))
             Divider()
-            Text("Frame availability and CPU command-encoding time are measured here; these are not GPU utilization, actual scan-out, or hardware decode-drop counters. Audience output uses the original renderer.")
+            Text("Frame availability and CPU command-encoding time are measured here; " +
+                 "these are not GPU utilization, actual scan-out, or hardware " +
+                 "decode-drop counters. " +
+                 (experimentalMetalAudienceVideo
+                  ? "Audience video-layer Metal rendering is experimental."
+                  : "Audience output uses the original renderer."))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -284,9 +292,60 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
     }
 }
 
-/// A single 30 Hz timer reads each unique live audience source once. This
-/// benchmark does not perform CPU pixel readbacks or create independent
-/// Program AVPlayers; the tested Metal view consumes the existing buffers.
+/// Uses display refresh notifications rather than a main-run-loop Timer.
+/// CVDisplayLink invokes its callback off-main, so at most one sample request
+/// is queued for the main actor at once. Stale notifications are discarded
+/// instead of piling up when SwiftUI or Core Image temporarily blocks main.
+private final class MetalPreviewDisplayClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+    private var link: CVDisplayLink?
+    private let tick: () -> Void
+
+    init(tick: @escaping () -> Void) { self.tick = tick }
+
+    func start() -> Bool {
+        var created: CVDisplayLink?
+        guard CVDisplayLinkCreateWithActiveCGDisplays(&created) == kCVReturnSuccess,
+              let created else { return false }
+        let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, context in
+            guard let context else { return kCVReturnError }
+            let clock = Unmanaged<MetalPreviewDisplayClock>.fromOpaque(context).takeUnretainedValue()
+            clock.enqueue()
+            return kCVReturnSuccess
+        }
+        guard CVDisplayLinkSetOutputCallback(created, callback,
+                  Unmanaged.passUnretained(self).toOpaque()) == kCVReturnSuccess,
+              CVDisplayLinkStart(created) == kCVReturnSuccess else { return false }
+        link = created
+        return true
+    }
+
+    private func enqueue() {
+        lock.lock()
+        let shouldQueue = !pending
+        if shouldQueue { pending = true }
+        lock.unlock()
+        guard shouldQueue else { return }
+        DispatchQueue.main.async { [self] in
+            lock.lock()
+            pending = false
+            lock.unlock()
+            tick()
+        }
+    }
+
+    func stop() {
+        if let link { CVDisplayLinkStop(link) }
+        link = nil
+    }
+
+    deinit { stop() }
+}
+
+/// Samples each unique live audience source once per 30 Hz preview interval.
+/// The display link may notify at 60/120 Hz, but the preview remains capped
+/// at 30 Hz until the compositor can encode all layers in one pass.
 @MainActor
 final class MetalVideoPreviewHub {
     static let shared = MetalVideoPreviewHub()
@@ -295,14 +354,25 @@ final class MetalVideoPreviewHub {
         init(_ view: MetalVideoSnapshotView) { self.view = view }
     }
     private var previews: [UUID: WeakView] = [:]
+    private var displayClock: MetalPreviewDisplayClock?
     private var timer: Timer?
+    private var lastSampleTime: TimeInterval = 0
     private init() {}
 
     func subscribe(_ view: MetalVideoSnapshotView) {
         previews[view.identity] = WeakView(view)
-        if timer == nil {
+        if displayClock == nil && timer == nil {
+            let clock = MetalPreviewDisplayClock { [weak self] in
+                MainActor.assumeIsolated { self?.sampleIfDue() }
+            }
+            if clock.start() {
+                displayClock = clock
+                return
+            }
+            // Headless displays and some remote desktop sessions cannot
+            // create CVDisplayLink. Keep the original timing path available.
             let next = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.sample() }
+                MainActor.assumeIsolated { self?.sampleIfDue() }
             }
             next.tolerance = 0.005
             RunLoop.main.add(next, forMode: .common)
@@ -312,12 +382,28 @@ final class MetalVideoPreviewHub {
 
     func unsubscribe(_ id: UUID) {
         previews.removeValue(forKey: id)
-        if previews.isEmpty { timer?.invalidate(); timer = nil }
+        if previews.isEmpty { stopClock() }
+    }
+
+    private func stopClock() {
+        displayClock?.stop()
+        displayClock = nil
+        timer?.invalidate()
+        timer = nil
+        lastSampleTime = 0
+    }
+
+    private func sampleIfDue() {
+        let now = ProcessInfo.processInfo.systemUptime
+        // Small slack accommodates 59.94 Hz and display-link scheduling jitter.
+        guard lastSampleTime == 0 || now - lastSampleTime >= (1.0 / 30.0) * 0.90 else { return }
+        lastSampleTime = now
+        sample()
     }
 
     private func sample() {
         previews = previews.filter { $0.value.view?.streamKey != nil }
-        guard !previews.isEmpty else { timer?.invalidate(); timer = nil; return }
+        guard !previews.isEmpty else { stopClock(); return }
         let keys = Set(previews.values.compactMap { $0.view?.streamKey })
         var buffers: [MetalPreviewStreamKey: CVPixelBuffer] = [:]
         for key in keys {

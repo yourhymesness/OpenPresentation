@@ -114,6 +114,86 @@ struct VideoPlaybackSurface: NSViewRepresentable {
     }
 }
 
+/// An outgoing placement of a continuing video during a dissolve. It borrows
+/// the existing on-air AVPlayers without mounting a second decoder or
+/// acquiring the pooled engine's sole NSView. Audio remains owned by the bus.
+struct VideoPlaybackMirrorSurface: NSViewRepresentable {
+    let path: String
+    let playbackSessionID: UUID
+    let outputScope: String
+    let sourceSlot: String
+    let contentMode: LayerContentMode
+    let transitionOpacity: Double
+
+    func makeNSView(context: Context) -> VideoPlaybackMirrorNSView {
+        VideoPlaybackMirrorNSView(frame: .zero)
+    }
+
+    func updateNSView(_ view: VideoPlaybackMirrorNSView, context: Context) {
+        let key = VideoPlaybackPool.Key(
+            path: VideoTakePlanner.canonical(path), scope: outputScope,
+            sessionID: playbackSessionID, sourceSlot: sourceSlot)
+        guard let engine = VideoPlaybackPool.shared.mountedEngine(for: key) else {
+            view.clearPlayers()
+            return
+        }
+        engine.updateMirror(view, contentMode: contentMode,
+                            transitionOpacity: transitionOpacity)
+    }
+
+    static func dismantleNSView(_ view: VideoPlaybackMirrorNSView, coordinator: ()) {
+        view.clearPlayers()
+    }
+}
+
+/// A second *display* for one already-playing video. Its AVPlayerLayers do
+/// not own transport, audio, looping, or any AVPlayer instance.
+final class VideoPlaybackMirrorNSView: NSView {
+    fileprivate let videoA = AVPlayerLayer()
+    fileprivate let videoB = AVPlayerLayer()
+    fileprivate let poster = CALayer()
+    fileprivate let black = CALayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        installLayers()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installLayers()
+    }
+
+    private func installLayers() {
+        wantsLayer = true
+        layer?.masksToBounds = true
+        for playerLayer in [videoA, videoB] {
+            playerLayer.isOpaque = false
+            playerLayer.backgroundColor = NSColor.clear.cgColor
+            layer?.addSublayer(playerLayer)
+        }
+        poster.contentsGravity = .resizeAspectFill
+        black.backgroundColor = NSColor.black.cgColor
+        layer?.addSublayer(poster)
+        layer?.addSublayer(black)
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for item in [videoA, videoB, poster, black] { item.frame = bounds }
+        CATransaction.commit()
+    }
+
+    func clearPlayers() {
+        videoA.player = nil
+        videoB.player = nil
+        poster.contents = nil
+        layer?.opacity = 0
+    }
+}
+
 /// A host is owned by SwiftUI and may be destroyed between slide takes. It
 /// temporarily mounts a retained engine view owned by VideoPlaybackPool.
 /// Reparenting the SAME AppKit view keeps the existing AVPlayerLayers, queue,
@@ -271,6 +351,13 @@ final class VideoPlaybackPool {
         print("[OpenPresentation Video] New decoder: \(key.scope) · \(URL(fileURLWithPath: key.path).lastPathComponent) · take \(key.sessionID.uuidString.prefix(8))")
         #endif
         entries[key] = Entry(engine: engine)
+        return engine
+    }
+
+    /// Mirrors must never instantiate an extra decoder or steal the live host.
+    func mountedEngine(for key: Key) -> VideoPlaybackNSView? {
+        guard let engine = entries[key]?.engine,
+              engine.superview != nil, engine.isConfigured else { return nil }
         return engine
     }
 
@@ -510,6 +597,33 @@ final class VideoPlaybackNSView: NSView {
     private let startupPoster = CALayer()
     private let blackOverlay = CALayer()
     private var firstFrameObservation: NSKeyValueObservation?
+
+    /// Keep temporary mirror layers in step with soft-loop and end fades.
+    /// Both video placements reference the same player and playback clock.
+    func updateMirror(_ mirror: VideoPlaybackMirrorNSView,
+                      contentMode: LayerContentMode, transitionOpacity: Double) {
+        let gravity: AVLayerVideoGravity
+        switch contentMode {
+        case .fit: gravity = .resizeAspect
+        case .fill: gravity = .resizeAspectFill
+        case .stretch: gravity = .resize
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if mirror.videoA.player !== videoA.player { mirror.videoA.player = videoA.player }
+        if mirror.videoB.player !== videoB.player { mirror.videoB.player = videoB.player }
+        mirror.videoA.videoGravity = gravity
+        mirror.videoB.videoGravity = gravity
+        mirror.videoA.opacity = videoA.opacity
+        mirror.videoB.opacity = videoB.opacity
+        mirror.poster.contentsGravity = startupPoster.contentsGravity
+        mirror.poster.contents = startupPoster.contents
+        mirror.poster.opacity = startupPoster.opacity
+        mirror.black.opacity = blackOverlay.opacity
+        mirror.layer?.opacity = Float(transitionOpacity.isFinite
+            ? min(max(transitionOpacity, 0), 1) : 0)
+        CATransaction.commit()
+    }
 
     private var pathInUse: String?
     private var endBehavior: VideoEndBehavior = .loop

@@ -71,6 +71,9 @@ struct ContinuingVideoLayerAnchor: Identifiable {
     let id: String
     let fromIndex: Int
     let toIndex: Int
+    /// Moving/resizing a continuous video needs two fading placements, not
+    /// the single opaque placement used for identical layer geometry.
+    let placementChanged: Bool
 }
 
 enum ContinuingVideoLayerPlan {
@@ -80,26 +83,32 @@ enum ContinuingVideoLayerPlan {
 
         // Match by decoder identity (path + source slot), not layer UUID:
         // duplicating a slide creates new layer IDs but keeps the same video.
-        func videoIndices(in slide: PresentationSlide) -> [(key: String, index: Int)] {
+        func videoIndices(in slide: PresentationSlide) -> [(key: String, index: Int, layer: SlideLayer)] {
             var occurrences: [String: Int] = [:]
-            var result: [(key: String, index: Int)] = []
+            var result: [(key: String, index: Int, layer: SlideLayer)] = []
             for (index, layer) in slide.layers.enumerated() where layer.kind == .video {
                 guard let path = layer.videoPath, !path.isEmpty else { continue }
                 let canonical = VideoTakePlanner.canonical(path)
                 let occurrence = occurrences[canonical, default: 0]
                 occurrences[canonical] = occurrence + 1
                 guard layer.isVisible, continuingPaths.contains(canonical) else { continue }
-                result.append(("\(canonical)|layer-\(occurrence)", index))
+                result.append(("\(canonical)|layer-\(occurrence)", index, layer))
             }
             return result
         }
 
         let oldIndices = Dictionary(uniqueKeysWithValues:
-            videoIndices(in: outgoing).map { ($0.key, $0.index) })
+            videoIndices(in: outgoing).map { ($0.key, (index: $0.index, layer: $0.layer)) })
         let matched = videoIndices(in: incoming).compactMap { item -> ContinuingVideoLayerAnchor? in
-            guard let fromIndex = oldIndices[item.key] else { return nil }
-            return ContinuingVideoLayerAnchor(id: item.key, fromIndex: fromIndex,
-                                              toIndex: item.index)
+            guard let old = oldIndices[item.key] else { return nil }
+            let was = old.layer
+            let now = item.layer
+            let changed = was.centerX != now.centerX || was.centerY != now.centerY ||
+                was.width != now.width || was.height != now.height ||
+                was.resolvedContentMode != now.resolvedContentMode ||
+                was.resolvedOpacity != now.resolvedOpacity
+            return ContinuingVideoLayerAnchor(id: item.key, fromIndex: old.index,
+                                              toIndex: item.index, placementChanged: changed)
         }
         // A reordering of two independent continuing videos cannot be mapped
         // into common depth bands. Keep the ordinary dissolve in that case.

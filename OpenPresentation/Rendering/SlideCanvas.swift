@@ -52,6 +52,9 @@ enum SharedBackgroundVideoMode {
 /// Shared renderer for thumbnails, Preview, Program and external output.
 /// Editor drawing and live drawing use precisely the same layer geometry.
 struct SlideCanvas: View {
+    /// Opt-in audience-only experiment. The AVPlayer stays mounted to supply
+    /// decoded frames and maintain transport; Metal draws its visible picture.
+    @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
     let slide: PresentationSlide?
     var isBlackout: Bool = false
     var isCleared: Bool = false
@@ -84,11 +87,19 @@ struct SlideCanvas: View {
     /// Shared media can continue at full volume across slide takes.
     var continuingVideoPaths: Set<String> = []
     var sharedBackgroundMode: SharedBackgroundVideoMode = .normal
+    /// A moving continuing video crossfades two placements. The outgoing
+    /// placement owns the real decoder; the incoming one only mirrors it.
+    var mirrorContinuingVideo: Bool = false
+    var fadeContinuingVideo: Bool = false
     /// Restrict an overlay to one contiguous band of foreground layers. This
     /// keeps a continuing video outside both fading SwiftUI parent canvases.
     var visibleLayerRange: Range<Int>? = nil
     /// A session distinguishes a fresh video take from a cached old decoder.
     var videoSessions: [String: UUID] = [:]
+
+    private var usesMetalAudienceVideo: Bool {
+        experimentalMetalAudienceVideo && (outputScope == "windowed" || outputScope == "fullscreen")
+    }
 
     @ViewBuilder var body: some View {
         if constrainToCanvas {
@@ -250,9 +261,13 @@ struct SlideCanvas: View {
                                          fade: Double, audible: Bool, volume: Double,
                                          contentMode: LayerContentMode, width: CGFloat, height: CGFloat,
                                          sourceSlot: String) -> some View {
-        let visualOpacity = VideoTransitionOpacityPolicy.opacity(
-            for: path, continuingPaths: continuingVideoPaths,
-            transitionOpacity: videoTransitionOpacity)
+        let sessionID = videoSessions[VideoTakePlanner.canonical(path)] ??
+            UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+        let visualOpacity = fadeContinuingVideo
+            ? (videoTransitionOpacity.isFinite ? min(max(videoTransitionOpacity, 0), 1) : 0)
+            : VideoTransitionOpacityPolicy.opacity(
+                for: path, continuingPaths: continuingVideoPaths,
+                transitionOpacity: videoTransitionOpacity)
         if !FileManager.default.fileExists(atPath: path) {
             ZStack {
                 Color.black
@@ -261,22 +276,49 @@ struct SlideCanvas: View {
                     .foregroundStyle(.orange)
             }
             .frame(width: width, height: height)
+        } else if playsVideo && mirrorContinuingVideo {
+            if usesMetalAudienceVideo {
+                // A moving duplicate borrows the outgoing placement's frame
+                // stream, just as its native AVPlayerLayer mirror would.
+                MetalVideoPreviewSurface(
+                    path: path, playbackSessionID: sessionID,
+                    sourceSlot: sourceSlot, contentMode: contentMode,
+                    transitionOpacity: visualOpacity)
+                    .frame(width: width, height: height)
+                    .clipped()
+            } else {
+                VideoPlaybackMirrorSurface(
+                    path: path, playbackSessionID: sessionID,
+                    outputScope: outputScope, sourceSlot: sourceSlot,
+                    contentMode: contentMode, transitionOpacity: visualOpacity)
+                    .frame(width: width, height: height)
+                    .clipped()
+            }
+        } else if playsVideo && usesMetalAudienceVideo {
+            ZStack {
+                // Retain the sole audience AVPlayer/decoder, even though its
+                // original Core Animation picture is hidden. The shared video
+                // output feeds both the audience Metal view and Program preview.
+                nativeVideoSurface(
+                    path: path, sessionID: sessionID, behavior: behavior,
+                    fade: fade, volume: volume, contentMode: contentMode,
+                    sourceSlot: sourceSlot, opacity: 0)
+                    .frame(width: width, height: height)
+                    .accessibilityHidden(true)
+
+                MetalVideoPreviewSurface(
+                    path: path, playbackSessionID: sessionID,
+                    sourceSlot: sourceSlot, contentMode: contentMode,
+                    transitionOpacity: visualOpacity)
+                    .frame(width: width, height: height)
+            }
+            .frame(width: width, height: height)
+            .clipped()
         } else if playsVideo {
-            VideoPlaybackSurface(path: path,
-                                 playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
-                                 behavior: behavior, fadeDuration: fade,
-                                 // A single, window-independent audio bus
-                                 // plays this soundtrack. Visual decoders
-                                 // never produce a second copy of the sound.
-                                 audioEnabled: false,
-                                 volume: volume, contentMode: contentMode,
-                                 transitionOpacity: visualOpacity,
-                                 outputScope: outputScope, sourceSlot: sourceSlot,
-                                 audioGain: cueAudioGain * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
-                                     ? 1.0 : transitionAudioGain),
-                                 preFaderGain: volume * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
-                                     ? 1.0 : transitionAudioGain),
-                                 faderGain: cueAudioGain)
+            nativeVideoSurface(
+                path: path, sessionID: sessionID, behavior: behavior,
+                fade: fade, volume: volume, contentMode: contentMode,
+                sourceSlot: sourceSlot, opacity: visualOpacity)
                 .frame(width: width, height: height)
                 .clipped()
         } else if metalVideoPreview {
@@ -284,8 +326,7 @@ struct SlideCanvas: View {
             // This path is opt-in and never replaces on-air AVPlayerLayers.
             MetalVideoPreviewSurface(
                 path: path,
-                playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
-                    UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                playbackSessionID: sessionID,
                 sourceSlot: sourceSlot, contentMode: contentMode,
                 transitionOpacity: visualOpacity)
                 .frame(width: width, height: height)
@@ -293,8 +334,7 @@ struct SlideCanvas: View {
         } else if sharedVideoPreview {
             SharedVideoPreviewSurface(
                 path: path,
-                playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
-                    UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                playbackSessionID: sessionID,
                 sourceSlot: sourceSlot, contentMode: contentMode,
                 transitionOpacity: visualOpacity)
                 .frame(width: width, height: height)
@@ -314,6 +354,26 @@ struct SlideCanvas: View {
             .frame(width: width, height: height)
             .clipped()
         }
+    }
+
+    private func nativeVideoSurface(path: String, sessionID: UUID,
+                                    behavior: VideoEndBehavior, fade: Double,
+                                    volume: Double, contentMode: LayerContentMode,
+                                    sourceSlot: String, opacity: Double) -> some View {
+        let isContinuing = continuingVideoPaths.contains(VideoTakePlanner.canonical(path))
+        let gain = isContinuing ? 1.0 : transitionAudioGain
+        return VideoPlaybackSurface(
+            path: path, playbackSessionID: sessionID,
+            behavior: behavior, fadeDuration: fade,
+            // The independent audio bus plays the soundtrack; these visual
+            // surfaces never produce another copy of it.
+            audioEnabled: false,
+            volume: volume, contentMode: contentMode,
+            transitionOpacity: opacity,
+            outputScope: outputScope, sourceSlot: sourceSlot,
+            audioGain: cueAudioGain * gain,
+            preFaderGain: volume * gain,
+            faderGain: cueAudioGain)
     }
 }
 
@@ -474,17 +534,50 @@ struct ProgramCanvas: View {
                 .opacity(alpha.incoming)
             if segment < anchors.count {
                 let anchor = anchors[segment]
-                SlideCanvas(slide: transition.to.slide,
-                            scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
-                            canvasSize: showCanvasSize,
-                            playsVideo: videoDecodingEnabled,
-                            sharedVideoPreview: sharedVideoPreview,
-                            metalVideoPreview: metalVideoPreview,
-                            outputScope: outputScope,
-                            continuingVideoPaths: continuing,
-                            sharedBackgroundMode: .foregroundOnly,
-                            visibleLayerRange: anchor.toIndex..<(anchor.toIndex + 1),
-                            videoSessions: transition.to.videoSessions)
+                if anchor.placementChanged {
+                    // Keep the existing player in the old position until it
+                    // has faded out. The destination uses a second display
+                    // of the same clock, so the video never seeks or doubles audio.
+                    SlideCanvas(slide: transition.from.slide,
+                                scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                                canvasSize: showCanvasSize,
+                                playsVideo: videoDecodingEnabled,
+                                sharedVideoPreview: sharedVideoPreview,
+                                metalVideoPreview: metalVideoPreview,
+                                videoTransitionOpacity: alpha.outgoing,
+                                outputScope: outputScope,
+                                continuingVideoPaths: continuing,
+                                sharedBackgroundMode: .foregroundOnly,
+                                fadeContinuingVideo: true,
+                                visibleLayerRange: anchor.fromIndex..<(anchor.fromIndex + 1),
+                                videoSessions: transition.from.videoSessions)
+                    SlideCanvas(slide: transition.to.slide,
+                                scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                                canvasSize: showCanvasSize,
+                                playsVideo: videoDecodingEnabled,
+                                sharedVideoPreview: sharedVideoPreview,
+                                metalVideoPreview: metalVideoPreview,
+                                videoTransitionOpacity: alpha.incoming,
+                                outputScope: outputScope,
+                                continuingVideoPaths: continuing,
+                                sharedBackgroundMode: .foregroundOnly,
+                                mirrorContinuingVideo: true,
+                                fadeContinuingVideo: true,
+                                visibleLayerRange: anchor.toIndex..<(anchor.toIndex + 1),
+                                videoSessions: transition.to.videoSessions)
+                } else {
+                    SlideCanvas(slide: transition.to.slide,
+                                scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                                canvasSize: showCanvasSize,
+                                playsVideo: videoDecodingEnabled,
+                                sharedVideoPreview: sharedVideoPreview,
+                                metalVideoPreview: metalVideoPreview,
+                                outputScope: outputScope,
+                                continuingVideoPaths: continuing,
+                                sharedBackgroundMode: .foregroundOnly,
+                                visibleLayerRange: anchor.toIndex..<(anchor.toIndex + 1),
+                                videoSessions: transition.to.videoSessions)
+                }
             }
         }
     }
