@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import SwiftUI
 
 /// Avoid repeatedly decoding the same imported image as Program, editor and
@@ -72,6 +73,9 @@ struct SlideCanvas: View {
     var playsVideo: Bool = false
     var sharedVideoPreview: Bool = false
     var metalVideoPreview: Bool = false
+    /// Mount AVPlayer decoders without drawing their video picture. A single
+    /// Metal compositor reads these same decoders for video-only slides.
+    var decoderOnly: Bool = false
     /// SwiftUI fades the slide tree, but AppKit/Metal video surfaces must also
     /// receive the exact transition alpha on their own Core Animation layer.
     var videoTransitionOpacity: Double = 1.0
@@ -276,6 +280,13 @@ struct SlideCanvas: View {
                     .foregroundStyle(.orange)
             }
             .frame(width: width, height: height)
+        } else if playsVideo && decoderOnly {
+            nativeVideoSurface(
+                path: path, sessionID: sessionID, behavior: behavior,
+                fade: fade, volume: volume, contentMode: contentMode,
+                sourceSlot: sourceSlot, opacity: 0)
+                .frame(width: width, height: height)
+                .accessibilityHidden(true)
         } else if playsVideo && mirrorContinuingVideo {
             if usesMetalAudienceVideo {
                 // A moving duplicate borrows the outgoing placement's frame
@@ -466,6 +477,7 @@ private struct SlideVectorShape: Shape {
 /// independently starts its own animation when a slide is taken live.
 @MainActor
 struct ProgramCanvas: View {
+    @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
     @ObservedObject var controller: ShowController
     var scaleMode: OutputScaleMode = .fit
     var constrainToCanvas: Bool = true
@@ -476,6 +488,78 @@ struct ProgramCanvas: View {
     var sharedVideoPreview: Bool = false
     var metalVideoPreview: Bool = false
     private var showCanvasSize: ShowCanvasSize { controller.canvasSize }
+
+    /// First compositor milestone: video-only slides (and their dissolves).
+    /// Any text, still image, GIF or shape retains the established renderer
+    /// until its exact authored z-order can be represented by Metal.
+    private func canComposite(_ slide: PresentationSlide?) -> Bool {
+        guard let slide else { return true }
+        return slide.backgroundImageData == nil && slide.layers.allSatisfy {
+            $0.kind == .video || $0.kind == .audio
+        }
+    }
+
+    private var compositorEnabled: Bool {
+        experimentalMetalAudienceVideo && videoDecodingEnabled &&
+        (outputScope == "windowed" || outputScope == "fullscreen")
+    }
+
+    private func compositeScene(_ slide: PresentationSlide?, sessions: [String: UUID],
+                                blank: Bool) -> MetalCompositeScene {
+        guard !blank, let slide else {
+            return MetalCompositeScene(background: CIColor(red: 0, green: 0, blue: 0), layers: [])
+        }
+        let hex = slide.backgroundHex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        let rgb = UInt64(String(hex.prefix(6)), radix: 16) ?? 0
+        let color = CIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+                            green: CGFloat((rgb >> 8) & 255) / 255,
+                            blue: CGFloat(rgb & 255) / 255)
+        var layers: [MetalCompositeVideoLayer] = []
+        func add(_ path: String, slot: String, rect: CGRect,
+                 mode: LayerContentMode, opacity: Double = 1) {
+            let canonical = VideoTakePlanner.canonical(path)
+            guard FileManager.default.fileExists(atPath: canonical) else { return }
+            let session = sessions[canonical] ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+            layers.append(MetalCompositeVideoLayer(
+                key: MetalPreviewStreamKey(path: canonical, sessionID: session, sourceSlot: slot),
+                rect: rect, mode: mode, opacity: opacity))
+        }
+        if let path = slide.backgroundVideoPath {
+            add(path, slot: "background", rect: CGRect(x: 0, y: 0, width: 1, height: 1), mode: .fill)
+        }
+        var occurrences: [String: Int] = [:]
+        for layer in slide.layers where layer.kind == .video {
+            guard let path = layer.videoPath else { continue }
+            let key = VideoTakePlanner.canonical(path)
+            let occurrence = occurrences[key, default: 0]
+            occurrences[key] = occurrence + 1
+            guard layer.isVisible else { continue }
+            add(path, slot: "layer-\(occurrence)",
+                rect: CGRect(x: layer.centerX - layer.width / 2,
+                             y: layer.centerY - layer.height / 2,
+                             width: layer.width, height: layer.height),
+                mode: layer.resolvedContentMode, opacity: layer.resolvedOpacity)
+        }
+        return MetalCompositeScene(background: color, layers: layers)
+    }
+
+    private func decoderHost(_ slide: PresentationSlide?, sessions: [String: UUID],
+                             blank: Bool) -> some View {
+        SlideCanvas(slide: slide, isBlackout: blank,
+                    scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                    canvasSize: showCanvasSize, playsVideo: true,
+                    decoderOnly: true, outputScope: outputScope,
+                    videoSessions: sessions)
+            .opacity(0.001)
+            .allowsHitTesting(false)
+    }
+
+    private func metalCompositedVideo(_ outgoing: MetalCompositeScene,
+                                      incoming: MetalCompositeScene?, progress: Double) -> some View {
+        MetalSlideCompositorSurface(outgoing: outgoing, incoming: incoming, progress: progress)
+            .aspectRatio(CGFloat(showCanvasSize.ratio),
+                         contentMode: scaleMode == .fit ? .fit : .fill)
+    }
 
     private func audioGains(for transition: ProgramTransition, at date: Date) -> (old: Double, new: Double) {
         let progress = transition.progress(at: date)
@@ -588,7 +672,28 @@ struct ProgramCanvas: View {
                 // Physical displays show black for transparency. The slide
                 // canvas itself retains alpha for future keyed output.
                 Color.black
-                if let transition = controller.activeTransition {
+                if compositorEnabled, let transition = controller.activeTransition,
+                   transition.style == .dissolve,
+                   canComposite(transition.from.slide), canComposite(transition.to.slide) {
+                    decoderHost(transition.from.slide, sessions: transition.from.videoSessions,
+                                blank: transition.from.isBlackout || transition.from.isCleared)
+                    decoderHost(transition.to.slide, sessions: transition.to.videoSessions,
+                                blank: transition.to.isBlackout || transition.to.isCleared)
+                    metalCompositedVideo(
+                        compositeScene(transition.from.slide, sessions: transition.from.videoSessions,
+                                       blank: transition.from.isBlackout || transition.from.isCleared),
+                        incoming: compositeScene(transition.to.slide, sessions: transition.to.videoSessions,
+                                                 blank: transition.to.isBlackout || transition.to.isCleared),
+                        progress: transition.progress(at: timeline.date))
+                } else if compositorEnabled && controller.activeTransition == nil &&
+                          canComposite(controller.liveSlide) {
+                    decoderHost(controller.liveSlide, sessions: controller.liveVideoSessions,
+                                blank: controller.isBlackout || controller.isCleared)
+                    metalCompositedVideo(
+                        compositeScene(controller.liveSlide, sessions: controller.liveVideoSessions,
+                                       blank: controller.isBlackout || controller.isCleared),
+                        incoming: nil, progress: 1)
+                } else if let transition = controller.activeTransition {
                     let alpha = transition.opacities(at: timeline.date)
                     let gains = audioGains(for: transition, at: timeline.date)
                     let continuing = Set(transition.to.videoSessions.compactMap { path, session in

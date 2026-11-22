@@ -377,6 +377,11 @@ final class MetalVideoPreviewHub {
         init(_ view: MetalVideoSnapshotView) { self.view = view }
     }
     private var previews: [UUID: WeakView] = [:]
+    private final class WeakComposite {
+        weak var view: MetalSlideCompositorView?
+        init(_ view: MetalSlideCompositorView) { self.view = view }
+    }
+    private var composites: [UUID: WeakComposite] = [:]
     private var displayClock: MetalPreviewDisplayClock?
     private var timer: Timer?
     private var lastSampleTime: TimeInterval = 0
@@ -384,6 +389,15 @@ final class MetalVideoPreviewHub {
 
     func subscribe(_ view: MetalVideoSnapshotView) {
         previews[view.identity] = WeakView(view)
+        startClockIfNeeded()
+    }
+
+    func subscribe(_ view: MetalSlideCompositorView) {
+        composites[view.identity] = WeakComposite(view)
+        startClockIfNeeded()
+    }
+
+    private func startClockIfNeeded() {
         if displayClock == nil && timer == nil {
             let clock = MetalPreviewDisplayClock { [weak self] in
                 MainActor.assumeIsolated { self?.sampleIfDue() }
@@ -405,7 +419,8 @@ final class MetalVideoPreviewHub {
 
     func unsubscribe(_ id: UUID) {
         previews.removeValue(forKey: id)
-        if previews.isEmpty { stopClock() }
+        composites.removeValue(forKey: id)
+        if previews.isEmpty && composites.isEmpty { stopClock() }
     }
 
     private func stopClock() {
@@ -428,8 +443,12 @@ final class MetalVideoPreviewHub {
 
     private func sample() {
         previews = previews.filter { $0.value.view?.streamKey != nil }
-        guard !previews.isEmpty else { stopClock(); return }
-        let keys = Set(previews.values.compactMap { $0.view?.streamKey })
+        composites = composites.filter { $0.value.view != nil }
+        guard !previews.isEmpty || !composites.isEmpty else { stopClock(); return }
+        var keys = Set(previews.values.compactMap { $0.view?.streamKey })
+        for entry in composites.values {
+            if let view = entry.view { keys.formUnion(view.sourceKeys) }
+        }
         var buffers: [MetalPreviewStreamKey: CVPixelBuffer] = [:]
         for key in keys {
             if let pixelBuffer = VideoPlaybackPool.shared.previewPixelBuffer(
@@ -445,5 +464,170 @@ final class MetalVideoPreviewHub {
                   let buffer = buffers[key] else { continue }
             view.receive(buffer)
         }
+        for recipient in composites.values {
+            recipient.view?.receive(buffers)
+        }
+    }
+}
+
+/// An ordered video layer expressed in unit canvas coordinates. Source slots
+/// match the existing AVPlayer pool, allowing the compositor to borrow decoded
+/// frames without creating or seeking an extra player.
+struct MetalCompositeVideoLayer {
+    let key: MetalPreviewStreamKey
+    let rect: CGRect
+    let mode: LayerContentMode
+    let opacity: Double
+}
+
+struct MetalCompositeScene {
+    let background: CIColor
+    let layers: [MetalCompositeVideoLayer]
+}
+
+/// One MTKView and one command buffer for every video in both slide scenes.
+/// The native decoders remain mounted invisibly by ProgramCanvas. Currently
+/// used only for video-only audience slides; text/image stacking keeps the
+/// original output renderer until those layers are migrated to this pipeline.
+struct MetalSlideCompositorSurface: NSViewRepresentable {
+    let outgoing: MetalCompositeScene
+    let incoming: MetalCompositeScene?
+    let progress: Double
+
+    func makeNSView(context: Context) -> MetalSlideCompositorView {
+        let view = MetalSlideCompositorView(frame: .zero,
+                                            device: MetalVideoRenderResources.shared.device)
+        view.configure(outgoing: outgoing, incoming: incoming, progress: progress)
+        return view
+    }
+
+    func updateNSView(_ view: MetalSlideCompositorView, context: Context) {
+        view.configure(outgoing: outgoing, incoming: incoming, progress: progress)
+    }
+
+    static func dismantleNSView(_ view: MetalSlideCompositorView, coordinator: ()) {
+        MetalVideoPreviewHub.shared.unsubscribe(view.identity)
+    }
+}
+
+@MainActor
+final class MetalSlideCompositorView: MTKView, MTKViewDelegate {
+    let identity = UUID()
+    private var outgoing = MetalCompositeScene(
+        background: CIColor(red: 0, green: 0, blue: 0), layers: [])
+    private var incoming: MetalCompositeScene?
+    private var progress = 1.0
+    private var buffers: [MetalPreviewStreamKey: CVPixelBuffer] = [:]
+
+    var sourceKeys: Set<MetalPreviewStreamKey> {
+        Set(outgoing.layers.map(\.key) + (incoming?.layers.map(\.key) ?? []))
+    }
+
+    override init(frame: NSRect, device: MTLDevice?) {
+        super.init(frame: frame, device: device)
+        setup()
+    }
+
+    required init(coder: NSCoder) {
+        super.init(coder: coder)
+        self.device = MetalVideoRenderResources.shared.device
+        setup()
+    }
+
+    private func setup() {
+        colorPixelFormat = .bgra8Unorm
+        framebufferOnly = false
+        clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        isPaused = true
+        enableSetNeedsDisplay = false
+        delegate = self
+    }
+
+    func configure(outgoing: MetalCompositeScene, incoming: MetalCompositeScene?, progress: Double) {
+        self.outgoing = outgoing
+        self.incoming = incoming
+        self.progress = progress.isFinite ? min(1, max(0, progress)) : 1
+        MetalVideoPreviewHub.shared.subscribe(self)
+    }
+
+    func receive(_ frames: [MetalPreviewStreamKey: CVPixelBuffer]) {
+        // Keep the last decoded frame across brief decoder under-runs.
+        buffers = buffers.filter { sourceKeys.contains($0.key) }
+        buffers.merge(frames.filter { sourceKeys.contains($0.key) }) { _, new in new }
+        draw()
+    }
+
+    nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+
+    nonisolated func draw(in view: MTKView) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { drawComposite() }
+        } else {
+            Task { @MainActor [weak self] in self?.drawComposite() }
+        }
+    }
+
+    private func drawComposite() {
+        let resources = MetalVideoRenderResources.shared
+        guard let drawable = currentDrawable,
+              let command = resources.queue?.makeCommandBuffer(),
+              let context = resources.imageContext else { return }
+        let bounds = CGRect(origin: .zero, size: drawableSize)
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let oldFrame = sceneImage(outgoing, in: bounds)
+        let image: CIImage
+        if let incoming {
+            let newFrame = sceneImage(incoming, in: bounds)
+            image = oldFrame.applyingFilter("CIDissolveTransition", parameters: [
+                kCIInputTargetImageKey: newFrame,
+                kCIInputTimeKey: progress
+            ])
+        } else {
+            image = oldFrame
+        }
+        context.render(image.cropped(to: bounds), to: drawable.texture,
+                       commandBuffer: command, bounds: bounds,
+                       colorSpace: resources.colorSpace)
+        command.present(drawable)
+        command.commit()
+    }
+
+    private func sceneImage(_ scene: MetalCompositeScene, in canvas: CGRect) -> CIImage {
+        var composed = CIImage(color: scene.background).cropped(to: canvas)
+        for layer in scene.layers {
+            guard let buffer = buffers[layer.key], layer.opacity > 0 else { continue }
+            let source = CIImage(cvPixelBuffer: buffer)
+            let dest = CGRect(x: layer.rect.minX * canvas.width,
+                              y: (1 - layer.rect.maxY) * canvas.height,
+                              width: layer.rect.width * canvas.width,
+                              height: layer.rect.height * canvas.height)
+            guard source.extent.width > 0, source.extent.height > 0,
+                  dest.width > 0, dest.height > 0 else { continue }
+            let xScale = dest.width / source.extent.width
+            let yScale = dest.height / source.extent.height
+            let scale: CGAffineTransform
+            switch layer.mode {
+            case .fit:
+                let amount = min(xScale, yScale)
+                scale = CGAffineTransform(scaleX: amount, y: amount)
+            case .fill:
+                let amount = max(xScale, yScale)
+                scale = CGAffineTransform(scaleX: amount, y: amount)
+            case .stretch:
+                scale = CGAffineTransform(scaleX: xScale, y: yScale)
+            }
+            let scaled = source.transformed(by: scale)
+            let placed = scaled.transformed(by: CGAffineTransform(
+                translationX: dest.midX - scaled.extent.midX,
+                y: dest.midY - scaled.extent.midY))
+            var image = placed.cropped(to: dest)
+            if layer.opacity < 1 {
+                image = image.applyingFilter("CIColorMatrix", parameters: [
+                    "inputAVector": CIVector(x: 0, y: 0, z: 0, w: layer.opacity)
+                ])
+            }
+            composed = image.composited(over: composed)
+        }
+        return composed.cropped(to: canvas)
     }
 }
