@@ -674,6 +674,18 @@ struct ProgramCanvas: View {
         let useVideoCompositor = compositorEnabled && canComposite(controller.liveSlide) &&
             (transition == nil || (transition?.style == .dissolve &&
                 canComposite(transition?.from.slide) && canComposite(transition?.to.slide)))
+        let useStableAudienceCanvas: Bool = {
+            guard videoDecodingEnabled && !useVideoCompositor &&
+                  (outputScope == "windowed" || outputScope == "fullscreen") else { return false }
+            guard let transition else { return true }
+            guard transition.style == .dissolve else { return false }
+            // Continuing media needs the existing specialized z-order plan.
+            // For ordinary dissolves, keep the incoming slide's actual view
+            // mounted through completion instead of replacing it at the end.
+            return !transition.to.videoSessions.contains { path, session in
+                transition.from.videoSessions[path] == session
+            }
+        }()
         return ZStack {
             if useVideoCompositor {
                 // Keep the live decoder and compositor OUTSIDE TimelineView.
@@ -697,6 +709,43 @@ struct ProgramCanvas: View {
                     }, transition: transition)
                     .zIndex(1)
             }
+            if useStableAudienceCanvas {
+                TimelineView(.animation) { timeline in
+                    let progress = transition?.progress(at: timeline.date) ?? 1
+                    ZStack {
+                        Color.black
+                        if let transition {
+                            SlideCanvas(slide: transition.from.slide,
+                                        isBlackout: transition.from.isBlackout,
+                                        isCleared: transition.from.isCleared,
+                                        scaleMode: scaleMode,
+                                        constrainToCanvas: constrainToCanvas,
+                                        canvasSize: showCanvasSize,
+                                        playsVideo: true,
+                                        videoTransitionOpacity: 1 - progress,
+                                        outputScope: outputScope,
+                                        videoSessions: transition.from.videoSessions)
+                                .opacity(1 - progress)
+                        }
+                        // This is one stable SwiftUI slot in both states:
+                        // transition active and transition finished. The live
+                        // video surface never needs to reattach at the handoff.
+                        SlideCanvas(slide: controller.liveSlide,
+                                    isBlackout: controller.isBlackout,
+                                    isCleared: controller.isCleared,
+                                    scaleMode: scaleMode,
+                                    constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
+                                    playsVideo: true,
+                                    videoTransitionOpacity: progress,
+                                    outputScope: outputScope,
+                                    videoSessions: controller.liveVideoSessions)
+                            .opacity(progress)
+                    }
+                    .clipped()
+                    .allowsHitTesting(false)
+                }
+            } else {
             TimelineView(.animation(paused: transition == nil)) { timeline in
               ZStack {
                 // Physical displays show black for transparency. The slide
@@ -876,6 +925,7 @@ struct ProgramCanvas: View {
                 // SwiftUI from interpolating text font/layout geometry during
                 // a Program transition or relayout.
                 transaction.disablesAnimations = true
+            }
             }
             }
         }
