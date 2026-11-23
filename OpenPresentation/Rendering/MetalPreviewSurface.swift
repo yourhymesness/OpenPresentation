@@ -492,17 +492,20 @@ struct MetalCompositeScene {
 struct MetalSlideCompositorSurface: NSViewRepresentable {
     let outgoing: MetalCompositeScene
     let incoming: MetalCompositeScene?
-    let progress: Double
+    let transitionStartedAt: Date?
+    let transitionDuration: TimeInterval
 
     func makeNSView(context: Context) -> MetalSlideCompositorView {
         let view = MetalSlideCompositorView(frame: .zero,
                                             device: MetalVideoRenderResources.shared.device)
-        view.configure(outgoing: outgoing, incoming: incoming, progress: progress)
+        view.configure(outgoing: outgoing, incoming: incoming,
+                       startedAt: transitionStartedAt, duration: transitionDuration)
         return view
     }
 
     func updateNSView(_ view: MetalSlideCompositorView, context: Context) {
-        view.configure(outgoing: outgoing, incoming: incoming, progress: progress)
+        view.configure(outgoing: outgoing, incoming: incoming,
+                       startedAt: transitionStartedAt, duration: transitionDuration)
     }
 
     static func dismantleNSView(_ view: MetalSlideCompositorView, coordinator: ()) {
@@ -516,7 +519,8 @@ final class MetalSlideCompositorView: MTKView, MTKViewDelegate {
     private var outgoing = MetalCompositeScene(
         background: CIColor(red: 0, green: 0, blue: 0), layers: [])
     private var incoming: MetalCompositeScene?
-    private var progress = 1.0
+    private var transitionStartedAt: Date?
+    private var transitionDuration: TimeInterval = 0
     private var buffers: [MetalPreviewStreamKey: CVPixelBuffer] = [:]
 
     var sourceKeys: Set<MetalPreviewStreamKey> {
@@ -543,10 +547,12 @@ final class MetalSlideCompositorView: MTKView, MTKViewDelegate {
         delegate = self
     }
 
-    func configure(outgoing: MetalCompositeScene, incoming: MetalCompositeScene?, progress: Double) {
+    func configure(outgoing: MetalCompositeScene, incoming: MetalCompositeScene?,
+                   startedAt: Date?, duration: TimeInterval) {
         self.outgoing = outgoing
         self.incoming = incoming
-        self.progress = progress.isFinite ? min(1, max(0, progress)) : 1
+        transitionStartedAt = startedAt
+        transitionDuration = duration
         MetalVideoPreviewHub.shared.subscribe(self)
     }
 
@@ -578,6 +584,9 @@ final class MetalSlideCompositorView: MTKView, MTKViewDelegate {
         let image: CIImage
         if let incoming {
             let newFrame = sceneImage(incoming, in: bounds)
+            let progress = transitionStartedAt.map {
+                min(1, max(0, Date().timeIntervalSince($0) / max(0.001, transitionDuration)))
+            } ?? 1
             image = oldFrame.applyingFilter("CIDissolveTransition", parameters: [
                 kCIInputTargetImageKey: newFrame,
                 kCIInputTimeKey: progress

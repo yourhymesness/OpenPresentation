@@ -555,8 +555,11 @@ struct ProgramCanvas: View {
     }
 
     private func metalCompositedVideo(_ outgoing: MetalCompositeScene,
-                                      incoming: MetalCompositeScene?, progress: Double) -> some View {
-        MetalSlideCompositorSurface(outgoing: outgoing, incoming: incoming, progress: progress)
+                                      incoming: MetalCompositeScene?,
+                                      transition: ProgramTransition?) -> some View {
+        MetalSlideCompositorSurface(outgoing: outgoing, incoming: incoming,
+                                    transitionStartedAt: transition?.startedAt,
+                                    transitionDuration: transition?.duration ?? 0)
             .aspectRatio(CGFloat(showCanvasSize.ratio),
                          contentMode: scaleMode == .fit ? .fit : .fill)
     }
@@ -667,37 +670,40 @@ struct ProgramCanvas: View {
     }
 
     var body: some View {
-        TimelineView(.animation(paused: controller.activeTransition == nil)) { timeline in
-            let transition = controller.activeTransition
-            let useVideoCompositor = compositorEnabled && canComposite(controller.liveSlide) &&
-                (transition == nil || (transition?.style == .dissolve &&
-                    canComposite(transition?.from.slide) && canComposite(transition?.to.slide)))
-            ZStack {
+        let transition = controller.activeTransition
+        let useVideoCompositor = compositorEnabled && canComposite(controller.liveSlide) &&
+            (transition == nil || (transition?.style == .dissolve &&
+                canComposite(transition?.from.slide) && canComposite(transition?.to.slide)))
+        return ZStack {
+            if useVideoCompositor {
+                // Keep the live decoder and compositor OUTSIDE TimelineView.
+                // Changing its animation schedule at the end of a dissolve
+                // must never tear down a decoder or discard the last frame.
+                decoderHost(controller.liveSlide, sessions: controller.liveVideoSessions,
+                            blank: controller.isBlackout || controller.isCleared)
+                if let transition {
+                    decoderHost(transition.from.slide, sessions: transition.from.videoSessions,
+                                blank: transition.from.isBlackout || transition.from.isCleared)
+                }
+                metalCompositedVideo(
+                    transition.map {
+                        compositeScene($0.from.slide, sessions: $0.from.videoSessions,
+                                       blank: $0.from.isBlackout || $0.from.isCleared)
+                    } ?? compositeScene(controller.liveSlide, sessions: controller.liveVideoSessions,
+                                        blank: controller.isBlackout || controller.isCleared),
+                    incoming: transition.map {
+                        compositeScene($0.to.slide, sessions: $0.to.videoSessions,
+                                       blank: $0.to.isBlackout || $0.to.isCleared)
+                    }, transition: transition)
+                    .zIndex(1)
+            }
+            TimelineView(.animation(paused: transition == nil)) { timeline in
+              ZStack {
                 // Physical displays show black for transparency. The slide
                 // canvas itself retains alpha for future keyed output.
                 Color.black
                 if useVideoCompositor {
-                    // Keep the incoming/live decoder host at the same SwiftUI
-                    // identity before, during and after a dissolve. Rebuilding
-                    // it at completion suspends the player and can visibly
-                    // restart a clip even when the session UUID is unchanged.
-                    decoderHost(controller.liveSlide, sessions: controller.liveVideoSessions,
-                                blank: controller.isBlackout || controller.isCleared)
-                    if let transition {
-                        decoderHost(transition.from.slide, sessions: transition.from.videoSessions,
-                                    blank: transition.from.isBlackout || transition.from.isCleared)
-                    }
-                    metalCompositedVideo(
-                        transition.map {
-                            compositeScene($0.from.slide, sessions: $0.from.videoSessions,
-                                           blank: $0.from.isBlackout || $0.from.isCleared)
-                        } ?? compositeScene(controller.liveSlide, sessions: controller.liveVideoSessions,
-                                            blank: controller.isBlackout || controller.isCleared),
-                        incoming: transition.map {
-                            compositeScene($0.to.slide, sessions: $0.to.videoSessions,
-                                           blank: $0.to.isBlackout || $0.to.isCleared)
-                        },
-                        progress: transition?.progress(at: timeline.date) ?? 1)
+                    EmptyView()
                 } else if let transition {
                     let alpha = transition.opacities(at: timeline.date)
                     let gains = audioGains(for: transition, at: timeline.date)
@@ -870,6 +876,7 @@ struct ProgramCanvas: View {
                 // SwiftUI from interpolating text font/layout geometry during
                 // a Program transition or relayout.
                 transaction.disablesAnimations = true
+            }
             }
         }
     }
