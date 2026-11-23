@@ -214,6 +214,15 @@ final class MetalVideoSnapshotView: MTKView, MTKViewDelegate {
         streamKey = key
         latestBuffer = nil
         hasLiveFrame = false
+        if let liveFrame = MetalVideoPreviewHub.shared.recentFrame(for: key) {
+            // SwiftUI may replace a Metal surface when a dissolve finishes.
+            // Reuse the last LIVE frame from this exact playback session,
+            // rather than briefly flashing the video's cached first frame.
+            showStartupPoster(nil)
+            receive(liveFrame)
+            MetalVideoPreviewHub.shared.subscribe(self)
+            return
+        }
         let cached = VideoFirstFrameCache.shared.frame(for: key.path) { [weak self] frame in
             guard let self, self.streamKey == key, !self.hasLiveFrame else { return }
             self.showStartupPoster(frame)
@@ -372,6 +381,11 @@ private final class MetalPreviewDisplayClock: @unchecked Sendable {
 @MainActor
 final class MetalVideoPreviewHub {
     static let shared = MetalVideoPreviewHub()
+    private struct RecentFrame {
+        let buffer: CVPixelBuffer
+        let timestamp: TimeInterval
+    }
+    private var recentFrames: [MetalPreviewStreamKey: RecentFrame] = [:]
     private final class WeakView {
         weak var view: MetalVideoSnapshotView?
         init(_ view: MetalVideoSnapshotView) { self.view = view }
@@ -386,6 +400,12 @@ final class MetalVideoPreviewHub {
     private var timer: Timer?
     private var lastSampleTime: TimeInterval = 0
     private init() {}
+
+    func recentFrame(for key: MetalPreviewStreamKey) -> CVPixelBuffer? {
+        guard let stored = recentFrames[key],
+              ProcessInfo.processInfo.systemUptime - stored.timestamp < 1.5 else { return nil }
+        return stored.buffer
+    }
 
     func subscribe(_ view: MetalVideoSnapshotView) {
         previews[view.identity] = WeakView(view)
@@ -455,6 +475,11 @@ final class MetalVideoPreviewHub {
                 path: key.path, sessionID: key.sessionID, sourceSlot: key.sourceSlot) {
                 buffers[key] = pixelBuffer
             }
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        recentFrames = recentFrames.filter { now - $0.value.timestamp < 1.5 }
+        for (key, buffer) in buffers {
+            recentFrames[key] = RecentFrame(buffer: buffer, timestamp: now)
         }
         MetalPreviewDiagnostics.shared.recordTick(
             at: ProcessInfo.processInfo.systemUptime,
