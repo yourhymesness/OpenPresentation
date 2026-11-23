@@ -219,10 +219,18 @@ final class VideoPlaybackHostView: NSView {
         let newKey = VideoPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                            scope: scope, sessionID: session, sourceSlot: sourceSlot)
         let newlyMounted = key != newKey || engine == nil
+        var needsInitialAlignment = false
         if newlyMounted {
             unbind()
+            // A transition can replace its SwiftUI host while preserving the
+            // SAME playback session and AVPlayer. Reparent that decoder as-is:
+            // running the new-output alignment seek here visibly jumps a
+            // continuing video backward at the end of a dissolve.
+            needsInitialAlignment = !VideoPlaybackPool.shared.hasConfiguredEngine(for: newKey)
             let retained = VideoPlaybackPool.shared.engine(for: newKey)
-            VideoPlaybackPool.shared.prepareNewSurface(retained, key: newKey)
+            if needsInitialAlignment {
+                VideoPlaybackPool.shared.prepareNewSurface(retained, key: newKey)
+            }
             engine = retained
             key = newKey
             // If a dissolve still has two canvas instances, only the newer
@@ -249,7 +257,7 @@ final class VideoPlaybackHostView: NSView {
         // A cached audible player must not restart before the new mute state.
         if newlyMounted { VideoPlaybackPool.shared.didAttach(engine, key: newKey) }
         VideoPlaybackPool.shared.applyTransportIntent(to: engine, key: newKey)
-        if newlyMounted { VideoPlaybackPool.shared.alignNewSurface(engine, key: newKey) }
+        if needsInitialAlignment { VideoPlaybackPool.shared.alignNewSurface(engine, key: newKey) }
     }
 
     override func layout() {
@@ -352,6 +360,13 @@ final class VideoPlaybackPool {
         #endif
         entries[key] = Entry(engine: engine)
         return engine
+    }
+
+    /// Distinguish a genuinely new output decoder from a retained player
+    /// being moved between transition hosts. Only the former needs to seek
+    /// to the existing show's reference clock on first attachment.
+    func hasConfiguredEngine(for key: Key) -> Bool {
+        entries[key]?.engine.isConfigured ?? false
     }
 
     /// Mirrors must never instantiate an extra decoder or steal the live host.
