@@ -102,10 +102,17 @@ struct OpenPresentationApp: App {
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 Divider()
+                Button("Take Preview Live") { session.show.goLive() }
+                    .keyboardShortcut(.return, modifiers: [.command, .shift])
+                Divider()
                 Button("Next Slide") { session.show.advance(by: 1) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command])
                 Button("Previous Slide") { session.show.advance(by: -1) }
                     .keyboardShortcut(.leftArrow, modifiers: [.command])
+                Button("Program Next Slide") { session.show.advanceProgram(by: 1) }
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                Button("Program Previous Slide") { session.show.advanceProgram(by: -1) }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                 Divider()
                 Button("Toggle Blackout") { session.show.toggleBlackout() }
                     .keyboardShortcut("b", modifiers: [.command, .shift])

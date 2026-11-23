@@ -124,6 +124,29 @@ OpenPresentation is an evolving ProPresenter-style application with a separate *
 
 There are currently **no distributed signed/notarized app binaries**. Build the app from the Xcode source. An Apple Silicon Mac is the primary development target; other Mac hardware has not been qualified.
 
+## Stream Deck quick start (Hotkey actions)
+
+OpenPresentation supports a starter Stream Deck layout using Elgato's built-in
+**Hotkey** actions. No plugin or network connection is needed yet. OpenPresentation
+must be the **frontmost app** for these shortcuts to work; these are not global
+shortcuts, so do not rely on them for unattended show control.
+
+| Stream Deck button | Hotkey | Operation |
+| --- | --- | --- |
+| Take Preview | Command–Shift–Return | Take the selected Preview slide, only in Live mode |
+| Program Next | Command–Option–Right Arrow | Advance Program, including while editing in Blind mode |
+| Program Previous | Command–Option–Left Arrow | Go backward on Program, including in Blind mode |
+| Preview Next / Next Slide | Command–Right Arrow | Advance Preview in Blind mode, or Program in Live mode |
+| Preview Previous / Previous Slide | Command–Left Arrow | Move Preview backward in Blind mode, or Program in Live mode |
+| Blackout | Command–Shift–B | Toggle Program blackout |
+| Clear | Command–Shift–C | Toggle clear slide |
+| Live / Blind | Command–Shift–E | Toggle operating mode |
+
+In Stream Deck, drag a **Hotkey** action to each key, record its shortcut,
+and label the key. Test with OpenPresentation in front and an audience window
+open. The planned native plugin and authenticated local control API will add
+background control, key status indicators, and cross-platform integration.
+
 ## What's new in v0.3.1 alpha — Visual Font Browser
 
 - **Searchable font browser** in the Blind layer inspector, with installed font-family names displayed in their own typefaces and a sample line (`Aa Bb 123`).
