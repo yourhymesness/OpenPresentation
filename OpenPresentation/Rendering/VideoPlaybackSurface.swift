@@ -61,6 +61,85 @@ final class VideoFirstFrameCache {
     }
 }
 
+/// Prepare the *decoder*, not just a poster image, while a cue is in Preview.
+/// Players stay paused and muted until an audience surface claims them. We
+/// deliberately keep only one prepared copy per file: warming a second Program
+/// monitor decoder for every video can itself overwhelm a many-video slide.
+@MainActor
+final class VideoPlayerPrewarmCache {
+    static let shared = VideoPlayerPrewarmCache()
+
+    final class Prepared {
+        let player: AVPlayer
+        let queue: AVQueuePlayer?
+        let looper: AVPlayerLooper?
+
+        init(url: URL, behavior: VideoEndBehavior) {
+            if behavior == .loop {
+                let queue = AVQueuePlayer()
+                queue.actionAtItemEnd = .advance
+                let looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
+                self.player = queue
+                self.queue = queue
+                self.looper = looper
+            } else {
+                let player = AVPlayer(playerItem: AVPlayerItem(url: url))
+                player.actionAtItemEnd = .pause
+                self.player = player
+                self.queue = nil
+                self.looper = nil
+            }
+            player.isMuted = true
+            player.volume = 0
+            player.preroll(atRate: 1) { _ in }
+        }
+    }
+
+    private struct Key: Hashable {
+        let path: String
+        let behavior: VideoEndBehavior
+    }
+
+    private var prepared: [Key: Prepared] = [:]
+    private let maximumPlayers = 10
+
+    func prepare(slide: PresentationSlide?, excluding activePaths: Set<String>) {
+        guard let slide else {
+            prepared.removeAll()
+            return
+        }
+        var requested: [Key] = []
+        func include(_ path: String, _ behavior: VideoEndBehavior) {
+            let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+            let key = Key(path: canonical, behavior: behavior)
+            guard !activePaths.contains(canonical),
+                  FileManager.default.fileExists(atPath: canonical),
+                  !requested.contains(key) else { return }
+            requested.append(key)
+        }
+        if let path = slide.backgroundVideoPath, !path.isEmpty {
+            include(path, slide.resolvedBackgroundVideoEndBehavior)
+        }
+        for layer in slide.layers where layer.isVisible && layer.kind == .video {
+            if let path = layer.videoPath, !path.isEmpty {
+                include(path, layer.resolvedVideoEndBehavior)
+            }
+        }
+        let desired = Set(requested.prefix(maximumPlayers))
+        prepared = prepared.filter { desired.contains($0.key) }
+        for key in requested.prefix(maximumPlayers) where prepared[key] == nil {
+            prepared[key] = Prepared(url: URL(fileURLWithPath: key.path), behavior: key.behavior)
+        }
+    }
+
+    func claim(path: String, behavior: VideoEndBehavior, scope: String) -> Prepared? {
+        // Audience playback gets priority; the Program monitor remains a
+        // separate clock and may not consume a decoder meant for the audience.
+        guard scope == "fullscreen" || scope == "windowed" else { return nil }
+        return prepared.removeValue(forKey: Key(path: path, behavior: behavior))
+    }
+}
+
 /// A SwiftUI video view is disposable. Its AVPlayer must NOT be: a slide
 /// dissolve constructs a temporary incoming canvas and then removes it.
 /// Without a retained player, the outgoing/incoming handoff starts video and
@@ -919,18 +998,20 @@ final class VideoPlaybackNSView: NSView {
         setAlphas(primary: 1, standby: 0, black: 0)
         showStartupPoster(for: path)
         let url = URL(fileURLWithPath: path)
+        let prewarmed = VideoPlayerPrewarmCache.shared.claim(path: path,
+                                                            behavior: behavior, scope: meterScope)
 
         if behavior == .loop {
-            let queue = AVQueuePlayer()
+            let queue = prewarmed?.queue ?? AVQueuePlayer()
             AudioOutputRouting.apply(to: queue)
             queue.actionAtItemEnd = .advance
             queue.isMuted = !audioIsEnabled
             queue.volume = audibleVolume
-            let item = AVPlayerItem(url: url)
+            let item = queue.currentItem ?? AVPlayerItem(url: url)
             meterPrimaryID = VideoPlaybackWorkload.shouldMeter(scope: meterScope, audible: requestedAudioEnabled)
                 ? LiveAudioMeters.shared.attach(item: item, to: queue, scope: meterScope) : nil
             updateMeterParameters()
-            looper = AVPlayerLooper(player: queue, templateItem: item)
+            looper = prewarmed?.looper ?? AVPlayerLooper(player: queue, templateItem: item)
             loopQueue = queue
             primary = queue
             videoA.player = queue
@@ -940,7 +1021,21 @@ final class VideoPlaybackNSView: NSView {
             return
         }
 
-        let (player, primaryMeter) = makePlayer(url: url)
+        let playerAndMeter: (AVPlayer, UUID?)
+        if let prewarmed {
+            let player = prewarmed.player
+            AudioOutputRouting.apply(to: player)
+            player.isMuted = !audioIsEnabled
+            player.volume = audibleVolume
+            let meter = VideoPlaybackWorkload.shouldMeter(scope: meterScope, audible: requestedAudioEnabled)
+                ? player.currentItem.flatMap {
+                    LiveAudioMeters.shared.attach(item: $0, to: player, scope: meterScope)
+                } : nil
+            playerAndMeter = (player, meter)
+        } else {
+            playerAndMeter = makePlayer(url: url)
+        }
+        let (player, primaryMeter) = playerAndMeter
         meterPrimaryID = primaryMeter
         player.actionAtItemEnd = .pause
         primary = player

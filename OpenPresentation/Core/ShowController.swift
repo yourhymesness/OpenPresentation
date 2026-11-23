@@ -184,6 +184,8 @@ final class ShowController: ObservableObject {
             // operator is in Preview, before the live dissolve can begin.
             if selectedSlideID != oldValue {
                 VideoFirstFrameCache.shared.prefetch(slide: previewSlide)
+                VideoPlayerPrewarmCache.shared.prepare(slide: previewSlide,
+                    excluding: Set(liveVideoSessions.keys))
             }
         }
     }
@@ -549,6 +551,8 @@ final class ShowController: ObservableObject {
         slides[index] = updated
         if updated.id == selectedSlideID {
             VideoFirstFrameCache.shared.prefetch(slide: updated)
+            VideoPlayerPrewarmCache.shared.prepare(slide: updated,
+                excluding: Set(liveVideoSessions.keys))
         }
     }
 
