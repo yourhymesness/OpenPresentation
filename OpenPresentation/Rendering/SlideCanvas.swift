@@ -670,7 +670,10 @@ struct ProgramCanvas: View {
     }
 
     var body: some View {
-        let transition = controller.activeTransition
+        // A finished dissolve with a continuing layer retains its incoming
+        // SwiftUI hierarchy. Rebuilding a plain canvas here remounts all the
+        // other incoming video surfaces simultaneously at the fade endpoint.
+        let transition = controller.activeTransition ?? controller.retainedContinuingDissolve
         let useVideoCompositor = compositorEnabled && canComposite(controller.liveSlide) &&
             (transition == nil || (transition?.style == .dissolve &&
                 canComposite(transition?.from.slide) && canComposite(transition?.to.slide)))
@@ -746,7 +749,7 @@ struct ProgramCanvas: View {
                     .allowsHitTesting(false)
                 }
             } else {
-            TimelineView(.animation(paused: transition == nil)) { timeline in
+            TimelineView(.animation(paused: controller.activeTransition == nil)) { timeline in
               ZStack {
                 // Physical displays show black for transparency. The slide
                 // canvas itself retains alpha for future keyed output.

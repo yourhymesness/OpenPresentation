@@ -263,6 +263,11 @@ final class ShowController: ObservableObject {
         slides[index].transitionSecondsOverride = seconds.map { min(max($0, 0.05), 30) }
     }
     @Published private(set) var activeTransition: ProgramTransition?
+    /// Keep the completed continuing-video layout mounted until the next take.
+    /// Otherwise the special z-order dissolve is replaced by a plain canvas
+    /// exactly at the endpoint, reparenting every incoming AVPlayerLayer at
+    /// once and making newly started videos appear to pop into view.
+    @Published private(set) var retainedContinuingDissolve: ProgramTransition?
     @Published var statusMessage = "BLIND: Changes remain off-air. Switch to Live before sending a slide."
 
 
@@ -445,6 +450,7 @@ final class ShowController: ObservableObject {
     private func beginProgramTransition(from old: ProgramFrame, to next: ProgramFrame,
                                         destination: PresentationSlide? = nil) {
         activeTransition = nil
+        retainedContinuingDissolve = nil
         autoTriggeredTransitionID = nil
         // A transition from a blank idle Program need not animate, but
         // clearing an already-live slide does honor the selected effect.
@@ -455,6 +461,17 @@ final class ShowController: ObservableObject {
         activeTransition = effect
         DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.12) { [weak self] in
             guard let self, self.activeTransition?.id == effect.id else { return }
+            if effect.style == .dissolve, !old.isBlackout, !old.isCleared,
+               !next.isBlackout, !next.isCleared {
+                let continuing = Set(next.videoSessions.compactMap { path, session in
+                    old.videoSessions[path] == session ? path : nil
+                })
+                if !ContinuingVideoLayerPlan.anchors(
+                    from: old.slide, to: next.slide,
+                    continuingPaths: continuing).isEmpty {
+                    self.retainedContinuingDissolve = effect
+                }
+            }
             self.activeTransition = nil
         }
     }
@@ -623,6 +640,7 @@ final class ShowController: ObservableObject {
         liveSlideSnapshot = nil
         liveVideoSessions = [:]
         activeTransition = nil
+        retainedContinuingDissolve = nil
         // Preserve the operator's current Live/Blind mode while opening another show.
         isBlackout = false
         isCleared = false
@@ -670,6 +688,7 @@ final class ShowController: ObservableObject {
         liveSlideSnapshot = nil
         liveVideoSessions = [:]
         activeTransition = nil
+        retainedContinuingDissolve = nil
         isBlackout = false
         isCleared = false
         loopAutoAdvance = false
