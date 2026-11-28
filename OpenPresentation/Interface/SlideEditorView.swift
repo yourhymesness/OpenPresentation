@@ -283,6 +283,9 @@ struct SlideEditorView: View {
                 // The canvas command handler is active only for the operator
                 // window, never for a Windowed Audience Output or Settings.
                 guard event.window?.title == "OpenPresentation" else { return event }
+                // A click in the slide library changes ⌘C/⌘V to whole-slide
+                // operations. Do not let a stale layer selection swallow them.
+                if OpenPresentationNativeMenus.shared.isSlideLibraryFocused { return event }
                 // These two AppKit classes are the first responders while a
                 // TextEditor, TextField, or inline layer editor is active.
                 if let responder = event.window?.firstResponder,
@@ -329,6 +332,9 @@ struct SlideEditorView: View {
             // A font candidate belongs to one text layer, not the next
             // selection. Dismissing guarantees an immediate visual rollback.
             closeFontBrowser()
+            if selectedLayerID != nil {
+                OpenPresentationNativeMenus.shared.focusLayerEditor()
+            }
         }
         .onChange(of: isFontBrowserPresented) { _, presented in
             if !presented { hoveredFontFamily = nil }

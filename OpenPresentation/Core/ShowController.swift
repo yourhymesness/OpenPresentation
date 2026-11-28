@@ -592,11 +592,27 @@ final class ShowController: ObservableObject {
     }
 
     func moveSelectedSlide(by offset: Int) {
-        guard let selectedSlideID,
+        guard mode == .blind, let selectedSlideID,
               let index = slides.firstIndex(where: { $0.id == selectedSlideID }) else { return }
         let destination = index + offset
         guard slides.indices.contains(destination) else { return }
+        checkpointBeforeSlideOperation("Reorder Slides")
         slides.swapAt(index, destination)
+    }
+
+    /// Move a library slide alongside the hovered target, preserving authored
+    /// IDs, collections and the immutable snapshot currently on Program.
+    /// The direction determines which side of the target receives the slide.
+    func moveSlide(_ movingID: UUID, to targetID: UUID) {
+        guard mode == .blind, movingID != targetID,
+              let source = slides.firstIndex(where: { $0.id == movingID }),
+              let destination = slides.firstIndex(where: { $0.id == targetID }) else { return }
+        checkpointBeforeSlideOperation("Reorder Slides")
+        let moved = slides.remove(at: source)
+        guard let targetIndex = slides.firstIndex(where: { $0.id == targetID }) else { return }
+        slides.insert(moved, at: targetIndex + (source < destination ? 1 : 0))
+        selectedSlideID = movingID
+        statusMessage = "BLIND: Slide reordered. Program unchanged."
     }
 
     func currentShow() -> PresentationShow {

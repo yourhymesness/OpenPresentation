@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 
 /// Senses a few OS-supported signals without polling raw CPU/GPU percent.
@@ -54,7 +55,7 @@ private final class ProgramPreviewHealthMonitor: ObservableObject {
 /// Shared slide clipboard. Unlike the layer clipboard, this holds an entire
 /// authored slide, including notes, collection, timing, background, and media.
 /// Paste gets new slide/layer/group UUIDs from ShowController.
-private enum SlideClipboard {
+enum SlideClipboard {
     static let type = NSPasteboard.PasteboardType("com.openpresentation.slide")
 
     static func copy(_ slide: PresentationSlide) {
@@ -66,6 +67,29 @@ private enum SlideClipboard {
     static func paste() -> PresentationSlide? {
         guard let data = NSPasteboard.general.data(forType: type) else { return nil }
         return try? JSONDecoder().decode(PresentationSlide.self, from: data)
+    }
+}
+
+/// A drop commits exactly one undoable library reorder, rather than creating
+/// an undo checkpoint for every row entered while the pointer is moving.
+private struct SlideReorderDropDelegate: DropDelegate {
+    let targetID: UUID
+    let show: ShowController
+    @Binding var draggedID: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        show.mode == .blind && draggedID != nil && draggedID != targetID
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedID, draggedID != targetID, show.mode == .blind else { return false }
+        show.moveSlide(draggedID, to: targetID)
+        self.draggedID = nil
+        return true
     }
 }
 
@@ -84,6 +108,7 @@ struct OperatorView: View {
     @State private var notesEditorTarget: SlideNotesEditorTarget?
     @State private var transitionEditorTarget: SlideTransitionEditorTarget?
     @State private var slidePendingDeletion: UUID?
+    @State private var draggedSlideID: UUID?
     @State private var slideTransitionCustomText = ""
     @State private var globalTransitionCustomText = ""
     @State private var editingGlobalTransitionTime = false
@@ -546,6 +571,7 @@ struct OperatorView: View {
                     ForEach(show.visibleSlides) { slide in
                         Button {
                             endTextEditing()
+                            OpenPresentationNativeMenus.shared.focusSlideLibrary()
                             show.select(slide)
                         } label: {
                             VStack(alignment: .leading, spacing: 5) {
@@ -571,6 +597,13 @@ struct OperatorView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .onDrag {
+                            draggedSlideID = slide.id
+                            return NSItemProvider(object: slide.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [UTType.plainText], delegate:
+                            SlideReorderDropDelegate(targetID: slide.id, show: show,
+                                                     draggedID: $draggedSlideID))
                         .contextMenu {
                             Button("Copy Slide", systemImage: "doc.on.doc") { SlideClipboard.copy(slide) }
                             Button("Paste Slide After", systemImage: "doc.on.clipboard") {

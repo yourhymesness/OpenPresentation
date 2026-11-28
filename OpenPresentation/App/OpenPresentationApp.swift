@@ -295,6 +295,7 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
     private weak var output: OutputManager?
     private var editorActions: LayerEditorMenuActions?
     private var editorOwner: UUID?
+    private(set) var isSlideLibraryFocused = false
     private var installedEditMenu: NSMenu?
     private var installedViewMenu: NSMenu?
     // Native fullscreen windows can become the key/main window without the
@@ -349,6 +350,9 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
         editorOwner = owner
         editorActions = actions
     }
+
+    func focusSlideLibrary() { isSlideLibraryFocused = true }
+    func focusLayerEditor() { isSlideLibraryFocused = false }
 
     func unregisterEditor(owner: UUID) {
         guard editorOwner == owner else { return }
@@ -428,6 +432,10 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
         show?.mode == .blind && editorActions != nil
     }
 
+    private var canEditSlide: Bool {
+        show?.mode == .blind && isSlideLibraryFocused && show?.previewSlide != nil
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let text = textEditor
         let textSelected = (text?.selectedRange().length ?? 0) > 0
@@ -443,8 +451,11 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
             return canEditLayers && (editorActions?.canCut() ?? false)
         case Tag.copy:
             if text != nil { return textSelected }
-            return canEditLayers && (editorActions?.hasSelection() ?? false)
-        case Tag.paste: return (text != nil || canEditLayers) && !NSPasteboard.general.types.orEmpty.isEmpty
+            return canEditSlide || (canEditLayers && (editorActions?.hasSelection() ?? false))
+        case Tag.paste:
+            if text != nil { return true }
+            if canEditSlide { return SlideClipboard.paste() != nil }
+            return canEditLayers && !NSPasteboard.general.types.orEmpty.isEmpty
         case Tag.delete: return canEditLayers && (editorActions?.hasSelection() ?? false)
         case Tag.selectAll: return text != nil || canEditLayers
         case Tag.fullscreen: return (output?.isFullscreenOpen ?? false) || output?.selectedScreen != nil
@@ -486,10 +497,14 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
     }
     @objc private func copyEdit(_ sender: Any?) {
         if let textEditor { textEditor.copy(sender) }
+        else if canEditSlide, let slide = show?.previewSlide { SlideClipboard.copy(slide) }
         else if canEditLayers { editorActions?.copy() }
     }
     @objc private func pasteEdit(_ sender: Any?) {
         if let textEditor { textEditor.paste(sender) }
+        else if canEditSlide, let slide = SlideClipboard.paste() {
+            show?.insertCopiedSlide(slide, after: show?.selectedSlideID)
+        }
         else if canEditLayers { _ = editorActions?.paste() }
     }
     @objc private func deleteLayers(_ sender: Any?) {
