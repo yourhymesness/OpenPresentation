@@ -52,6 +52,18 @@ import Foundation
         let anchors = ContinuingVideoLayerPlan.anchors(
             from: fromLayers, to: toLayers, continuingPaths: [canonical])
         assert(anchors.count == 1 && anchors[0].fromIndex == 1 && anchors[0].toIndex == 1)
+        assert(!anchors[0].placementChanged, "Identical video geometry must retain the one-plane fast path")
+        toLayers.layers[1].centerX = 0.75
+        let moved = ContinuingVideoLayerPlan.anchors(
+            from: fromLayers, to: toLayers, continuingPaths: [canonical])
+        assert(moved.count == 1 && moved[0].placementChanged,
+               "A moved video must crossfade its old and new placements")
+        toLayers.layers[1].centerX = fromLayers.layers[1].centerX
+        toLayers.layers[1].width *= 0.75
+        assert(ContinuingVideoLayerPlan.anchors(
+            from: fromLayers, to: toLayers, continuingPaths: [canonical])[0].placementChanged,
+               "Resizing a continuing video must also crossfade")
+        toLayers.layers[1].width = fromLayers.layers[1].width
         assert(ContinuingVideoLayerPlan.anchors(
             from: fromLayers, to: toLayers, continuingPaths: []).isEmpty)
         toLayers.layers[1].videoPath = "/tmp/other.mov"

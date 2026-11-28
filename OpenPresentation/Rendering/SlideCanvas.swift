@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import SwiftUI
 
 /// Avoid repeatedly decoding the same imported image as Program, editor and
@@ -52,6 +53,9 @@ enum SharedBackgroundVideoMode {
 /// Shared renderer for thumbnails, Preview, Program and external output.
 /// Editor drawing and live drawing use precisely the same layer geometry.
 struct SlideCanvas: View {
+    /// Opt-in audience-only experiment. The AVPlayer stays mounted to supply
+    /// decoded frames and maintain transport; Metal draws its visible picture.
+    @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
     let slide: PresentationSlide?
     var isBlackout: Bool = false
     var isCleared: Bool = false
@@ -69,6 +73,9 @@ struct SlideCanvas: View {
     var playsVideo: Bool = false
     var sharedVideoPreview: Bool = false
     var metalVideoPreview: Bool = false
+    /// Mount AVPlayer decoders without drawing their video picture. A single
+    /// Metal compositor reads these same decoders for video-only slides.
+    var decoderOnly: Bool = false
     /// SwiftUI fades the slide tree, but AppKit/Metal video surfaces must also
     /// receive the exact transition alpha on their own Core Animation layer.
     var videoTransitionOpacity: Double = 1.0
@@ -84,11 +91,19 @@ struct SlideCanvas: View {
     /// Shared media can continue at full volume across slide takes.
     var continuingVideoPaths: Set<String> = []
     var sharedBackgroundMode: SharedBackgroundVideoMode = .normal
+    /// A moving continuing video crossfades two placements. The outgoing
+    /// placement owns the real decoder; the incoming one only mirrors it.
+    var mirrorContinuingVideo: Bool = false
+    var fadeContinuingVideo: Bool = false
     /// Restrict an overlay to one contiguous band of foreground layers. This
     /// keeps a continuing video outside both fading SwiftUI parent canvases.
     var visibleLayerRange: Range<Int>? = nil
     /// A session distinguishes a fresh video take from a cached old decoder.
     var videoSessions: [String: UUID] = [:]
+
+    private var usesMetalAudienceVideo: Bool {
+        experimentalMetalAudienceVideo && (outputScope == "windowed" || outputScope == "fullscreen")
+    }
 
     @ViewBuilder var body: some View {
         if constrainToCanvas {
@@ -250,9 +265,13 @@ struct SlideCanvas: View {
                                          fade: Double, audible: Bool, volume: Double,
                                          contentMode: LayerContentMode, width: CGFloat, height: CGFloat,
                                          sourceSlot: String) -> some View {
-        let visualOpacity = VideoTransitionOpacityPolicy.opacity(
-            for: path, continuingPaths: continuingVideoPaths,
-            transitionOpacity: videoTransitionOpacity)
+        let sessionID = videoSessions[VideoTakePlanner.canonical(path)] ??
+            UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+        let visualOpacity = fadeContinuingVideo
+            ? (videoTransitionOpacity.isFinite ? min(max(videoTransitionOpacity, 0), 1) : 0)
+            : VideoTransitionOpacityPolicy.opacity(
+                for: path, continuingPaths: continuingVideoPaths,
+                transitionOpacity: videoTransitionOpacity)
         if !FileManager.default.fileExists(atPath: path) {
             ZStack {
                 Color.black
@@ -261,22 +280,56 @@ struct SlideCanvas: View {
                     .foregroundStyle(.orange)
             }
             .frame(width: width, height: height)
+        } else if playsVideo && decoderOnly {
+            nativeVideoSurface(
+                path: path, sessionID: sessionID, behavior: behavior,
+                fade: fade, volume: volume, contentMode: contentMode,
+                sourceSlot: sourceSlot, opacity: 0)
+                .frame(width: width, height: height)
+                .accessibilityHidden(true)
+        } else if playsVideo && mirrorContinuingVideo {
+            if usesMetalAudienceVideo {
+                // A moving duplicate borrows the outgoing placement's frame
+                // stream, just as its native AVPlayerLayer mirror would.
+                MetalVideoPreviewSurface(
+                    path: path, playbackSessionID: sessionID,
+                    sourceSlot: sourceSlot, contentMode: contentMode,
+                    transitionOpacity: visualOpacity)
+                    .frame(width: width, height: height)
+                    .clipped()
+            } else {
+                VideoPlaybackMirrorSurface(
+                    path: path, playbackSessionID: sessionID,
+                    outputScope: outputScope, sourceSlot: sourceSlot,
+                    contentMode: contentMode, transitionOpacity: visualOpacity)
+                    .frame(width: width, height: height)
+                    .clipped()
+            }
+        } else if playsVideo && usesMetalAudienceVideo {
+            ZStack {
+                // Retain the sole audience AVPlayer/decoder, even though its
+                // original Core Animation picture is hidden. The shared video
+                // output feeds both the audience Metal view and Program preview.
+                nativeVideoSurface(
+                    path: path, sessionID: sessionID, behavior: behavior,
+                    fade: fade, volume: volume, contentMode: contentMode,
+                    sourceSlot: sourceSlot, opacity: 0)
+                    .frame(width: width, height: height)
+                    .accessibilityHidden(true)
+
+                MetalVideoPreviewSurface(
+                    path: path, playbackSessionID: sessionID,
+                    sourceSlot: sourceSlot, contentMode: contentMode,
+                    transitionOpacity: visualOpacity)
+                    .frame(width: width, height: height)
+            }
+            .frame(width: width, height: height)
+            .clipped()
         } else if playsVideo {
-            VideoPlaybackSurface(path: path,
-                                 playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
-                                 behavior: behavior, fadeDuration: fade,
-                                 // A single, window-independent audio bus
-                                 // plays this soundtrack. Visual decoders
-                                 // never produce a second copy of the sound.
-                                 audioEnabled: false,
-                                 volume: volume, contentMode: contentMode,
-                                 transitionOpacity: visualOpacity,
-                                 outputScope: outputScope, sourceSlot: sourceSlot,
-                                 audioGain: cueAudioGain * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
-                                     ? 1.0 : transitionAudioGain),
-                                 preFaderGain: volume * (continuingVideoPaths.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
-                                     ? 1.0 : transitionAudioGain),
-                                 faderGain: cueAudioGain)
+            nativeVideoSurface(
+                path: path, sessionID: sessionID, behavior: behavior,
+                fade: fade, volume: volume, contentMode: contentMode,
+                sourceSlot: sourceSlot, opacity: visualOpacity)
                 .frame(width: width, height: height)
                 .clipped()
         } else if metalVideoPreview {
@@ -284,8 +337,7 @@ struct SlideCanvas: View {
             // This path is opt-in and never replaces on-air AVPlayerLayers.
             MetalVideoPreviewSurface(
                 path: path,
-                playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
-                    UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                playbackSessionID: sessionID,
                 sourceSlot: sourceSlot, contentMode: contentMode,
                 transitionOpacity: visualOpacity)
                 .frame(width: width, height: height)
@@ -293,8 +345,7 @@ struct SlideCanvas: View {
         } else if sharedVideoPreview {
             SharedVideoPreviewSurface(
                 path: path,
-                playbackSessionID: videoSessions[VideoTakePlanner.canonical(path)] ??
-                    UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                playbackSessionID: sessionID,
                 sourceSlot: sourceSlot, contentMode: contentMode,
                 transitionOpacity: visualOpacity)
                 .frame(width: width, height: height)
@@ -314,6 +365,26 @@ struct SlideCanvas: View {
             .frame(width: width, height: height)
             .clipped()
         }
+    }
+
+    private func nativeVideoSurface(path: String, sessionID: UUID,
+                                    behavior: VideoEndBehavior, fade: Double,
+                                    volume: Double, contentMode: LayerContentMode,
+                                    sourceSlot: String, opacity: Double) -> some View {
+        let isContinuing = continuingVideoPaths.contains(VideoTakePlanner.canonical(path))
+        let gain = isContinuing ? 1.0 : transitionAudioGain
+        return VideoPlaybackSurface(
+            path: path, playbackSessionID: sessionID,
+            behavior: behavior, fadeDuration: fade,
+            // The independent audio bus plays the soundtrack; these visual
+            // surfaces never produce another copy of it.
+            audioEnabled: false,
+            volume: volume, contentMode: contentMode,
+            transitionOpacity: opacity,
+            outputScope: outputScope, sourceSlot: sourceSlot,
+            audioGain: cueAudioGain * gain,
+            preFaderGain: volume * gain,
+            faderGain: cueAudioGain)
     }
 }
 
@@ -406,6 +477,7 @@ private struct SlideVectorShape: Shape {
 /// independently starts its own animation when a slide is taken live.
 @MainActor
 struct ProgramCanvas: View {
+    @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
     @ObservedObject var controller: ShowController
     var scaleMode: OutputScaleMode = .fit
     var constrainToCanvas: Bool = true
@@ -416,6 +488,81 @@ struct ProgramCanvas: View {
     var sharedVideoPreview: Bool = false
     var metalVideoPreview: Bool = false
     private var showCanvasSize: ShowCanvasSize { controller.canvasSize }
+
+    /// First compositor milestone: video-only slides (and their dissolves).
+    /// Any text, still image, GIF or shape retains the established renderer
+    /// until its exact authored z-order can be represented by Metal.
+    private func canComposite(_ slide: PresentationSlide?) -> Bool {
+        guard let slide else { return true }
+        return slide.backgroundImageData == nil && slide.layers.allSatisfy {
+            $0.kind == .video || $0.kind == .audio
+        }
+    }
+
+    private var compositorEnabled: Bool {
+        experimentalMetalAudienceVideo && videoDecodingEnabled &&
+        (outputScope == "windowed" || outputScope == "fullscreen")
+    }
+
+    private func compositeScene(_ slide: PresentationSlide?, sessions: [String: UUID],
+                                blank: Bool) -> MetalCompositeScene {
+        guard !blank, let slide else {
+            return MetalCompositeScene(background: CIColor(red: 0, green: 0, blue: 0), layers: [])
+        }
+        let hex = slide.backgroundHex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        let rgb = UInt64(String(hex.prefix(6)), radix: 16) ?? 0
+        let color = CIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+                            green: CGFloat((rgb >> 8) & 255) / 255,
+                            blue: CGFloat(rgb & 255) / 255)
+        var layers: [MetalCompositeVideoLayer] = []
+        func add(_ path: String, slot: String, rect: CGRect,
+                 mode: LayerContentMode, opacity: Double = 1) {
+            let canonical = VideoTakePlanner.canonical(path)
+            guard FileManager.default.fileExists(atPath: canonical) else { return }
+            let session = sessions[canonical] ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+            layers.append(MetalCompositeVideoLayer(
+                key: MetalPreviewStreamKey(path: canonical, sessionID: session, sourceSlot: slot),
+                rect: rect, mode: mode, opacity: opacity))
+        }
+        if let path = slide.backgroundVideoPath {
+            add(path, slot: "background", rect: CGRect(x: 0, y: 0, width: 1, height: 1), mode: .fill)
+        }
+        var occurrences: [String: Int] = [:]
+        for layer in slide.layers where layer.kind == .video {
+            guard let path = layer.videoPath else { continue }
+            let key = VideoTakePlanner.canonical(path)
+            let occurrence = occurrences[key, default: 0]
+            occurrences[key] = occurrence + 1
+            guard layer.isVisible else { continue }
+            add(path, slot: "layer-\(occurrence)",
+                rect: CGRect(x: layer.centerX - layer.width / 2,
+                             y: layer.centerY - layer.height / 2,
+                             width: layer.width, height: layer.height),
+                mode: layer.resolvedContentMode, opacity: layer.resolvedOpacity)
+        }
+        return MetalCompositeScene(background: color, layers: layers)
+    }
+
+    private func decoderHost(_ slide: PresentationSlide?, sessions: [String: UUID],
+                             blank: Bool) -> some View {
+        SlideCanvas(slide: slide, isBlackout: blank,
+                    scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                    canvasSize: showCanvasSize, playsVideo: true,
+                    decoderOnly: true, outputScope: outputScope,
+                    videoSessions: sessions)
+            .opacity(0.001)
+            .allowsHitTesting(false)
+    }
+
+    private func metalCompositedVideo(_ outgoing: MetalCompositeScene,
+                                      incoming: MetalCompositeScene?,
+                                      transition: ProgramTransition?) -> some View {
+        MetalSlideCompositorSurface(outgoing: outgoing, incoming: incoming,
+                                    transitionStartedAt: transition?.startedAt,
+                                    transitionDuration: transition?.duration ?? 0)
+            .aspectRatio(CGFloat(showCanvasSize.ratio),
+                         contentMode: scaleMode == .fit ? .fit : .fill)
+    }
 
     private func audioGains(for transition: ProgramTransition, at date: Date) -> (old: Double, new: Double) {
         let progress = transition.progress(at: date)
@@ -474,28 +621,142 @@ struct ProgramCanvas: View {
                 .opacity(alpha.incoming)
             if segment < anchors.count {
                 let anchor = anchors[segment]
-                SlideCanvas(slide: transition.to.slide,
-                            scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
-                            canvasSize: showCanvasSize,
-                            playsVideo: videoDecodingEnabled,
-                            sharedVideoPreview: sharedVideoPreview,
-                            metalVideoPreview: metalVideoPreview,
-                            outputScope: outputScope,
-                            continuingVideoPaths: continuing,
-                            sharedBackgroundMode: .foregroundOnly,
-                            visibleLayerRange: anchor.toIndex..<(anchor.toIndex + 1),
-                            videoSessions: transition.to.videoSessions)
+                if anchor.placementChanged {
+                    // Keep the existing player in the old position until it
+                    // has faded out. The destination uses a second display
+                    // of the same clock, so the video never seeks or doubles audio.
+                    SlideCanvas(slide: transition.from.slide,
+                                scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                                canvasSize: showCanvasSize,
+                                playsVideo: videoDecodingEnabled,
+                                sharedVideoPreview: sharedVideoPreview,
+                                metalVideoPreview: metalVideoPreview,
+                                videoTransitionOpacity: alpha.outgoing,
+                                outputScope: outputScope,
+                                continuingVideoPaths: continuing,
+                                sharedBackgroundMode: .foregroundOnly,
+                                fadeContinuingVideo: true,
+                                visibleLayerRange: anchor.fromIndex..<(anchor.fromIndex + 1),
+                                videoSessions: transition.from.videoSessions)
+                    SlideCanvas(slide: transition.to.slide,
+                                scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                                canvasSize: showCanvasSize,
+                                playsVideo: videoDecodingEnabled,
+                                sharedVideoPreview: sharedVideoPreview,
+                                metalVideoPreview: metalVideoPreview,
+                                videoTransitionOpacity: alpha.incoming,
+                                outputScope: outputScope,
+                                continuingVideoPaths: continuing,
+                                sharedBackgroundMode: .foregroundOnly,
+                                mirrorContinuingVideo: true,
+                                fadeContinuingVideo: true,
+                                visibleLayerRange: anchor.toIndex..<(anchor.toIndex + 1),
+                                videoSessions: transition.to.videoSessions)
+                } else {
+                    SlideCanvas(slide: transition.to.slide,
+                                scaleMode: scaleMode, constrainToCanvas: constrainToCanvas,
+                                canvasSize: showCanvasSize,
+                                playsVideo: videoDecodingEnabled,
+                                sharedVideoPreview: sharedVideoPreview,
+                                metalVideoPreview: metalVideoPreview,
+                                outputScope: outputScope,
+                                continuingVideoPaths: continuing,
+                                sharedBackgroundMode: .foregroundOnly,
+                                visibleLayerRange: anchor.toIndex..<(anchor.toIndex + 1),
+                                videoSessions: transition.to.videoSessions)
+                }
             }
         }
     }
 
     var body: some View {
-        TimelineView(.animation(paused: controller.activeTransition == nil)) { timeline in
-            ZStack {
+        // A finished dissolve with a continuing layer retains its incoming
+        // SwiftUI hierarchy. Rebuilding a plain canvas here remounts all the
+        // other incoming video surfaces simultaneously at the fade endpoint.
+        let transition = controller.activeTransition ?? controller.retainedContinuingDissolve
+        let useVideoCompositor = compositorEnabled && canComposite(controller.liveSlide) &&
+            (transition == nil || (transition?.style == .dissolve &&
+                canComposite(transition?.from.slide) && canComposite(transition?.to.slide)))
+        let useStableAudienceCanvas: Bool = {
+            guard videoDecodingEnabled && !useVideoCompositor &&
+                  (outputScope == "windowed" || outputScope == "fullscreen") else { return false }
+            guard let transition else { return true }
+            guard transition.style == .dissolve else { return false }
+            // Continuing media needs the existing specialized z-order plan.
+            // For ordinary dissolves, keep the incoming slide's actual view
+            // mounted through completion instead of replacing it at the end.
+            return !transition.to.videoSessions.contains { path, session in
+                transition.from.videoSessions[path] == session
+            }
+        }()
+        return ZStack {
+            if useVideoCompositor {
+                // Keep the live decoder and compositor OUTSIDE TimelineView.
+                // Changing its animation schedule at the end of a dissolve
+                // must never tear down a decoder or discard the last frame.
+                decoderHost(controller.liveSlide, sessions: controller.liveVideoSessions,
+                            blank: controller.isBlackout || controller.isCleared)
+                if let transition {
+                    decoderHost(transition.from.slide, sessions: transition.from.videoSessions,
+                                blank: transition.from.isBlackout || transition.from.isCleared)
+                }
+                metalCompositedVideo(
+                    transition.map {
+                        compositeScene($0.from.slide, sessions: $0.from.videoSessions,
+                                       blank: $0.from.isBlackout || $0.from.isCleared)
+                    } ?? compositeScene(controller.liveSlide, sessions: controller.liveVideoSessions,
+                                        blank: controller.isBlackout || controller.isCleared),
+                    incoming: transition.map {
+                        compositeScene($0.to.slide, sessions: $0.to.videoSessions,
+                                       blank: $0.to.isBlackout || $0.to.isCleared)
+                    }, transition: transition)
+                    .zIndex(1)
+            }
+            if useStableAudienceCanvas {
+                TimelineView(.animation) { timeline in
+                    let progress = transition?.progress(at: timeline.date) ?? 1
+                    ZStack {
+                        Color.black
+                        if let transition {
+                            SlideCanvas(slide: transition.from.slide,
+                                        isBlackout: transition.from.isBlackout,
+                                        isCleared: transition.from.isCleared,
+                                        scaleMode: scaleMode,
+                                        constrainToCanvas: constrainToCanvas,
+                                        canvasSize: showCanvasSize,
+                                        playsVideo: true,
+                                        videoTransitionOpacity: 1 - progress,
+                                        outputScope: outputScope,
+                                        videoSessions: transition.from.videoSessions)
+                                .opacity(1 - progress)
+                        }
+                        // This is one stable SwiftUI slot in both states:
+                        // transition active and transition finished. The live
+                        // video surface never needs to reattach at the handoff.
+                        SlideCanvas(slide: controller.liveSlide,
+                                    isBlackout: controller.isBlackout,
+                                    isCleared: controller.isCleared,
+                                    scaleMode: scaleMode,
+                                    constrainToCanvas: constrainToCanvas,
+                                    canvasSize: showCanvasSize,
+                                    playsVideo: true,
+                                    videoTransitionOpacity: progress,
+                                    outputScope: outputScope,
+                                    videoSessions: controller.liveVideoSessions)
+                            .opacity(progress)
+                    }
+                    .clipped()
+                    .allowsHitTesting(false)
+                }
+            } else {
+            TimelineView(.animation(paused: controller.activeTransition == nil)) { timeline in
+              ZStack {
                 // Physical displays show black for transparency. The slide
                 // canvas itself retains alpha for future keyed output.
                 Color.black
-                if let transition = controller.activeTransition {
+                if useVideoCompositor {
+                    EmptyView()
+                } else if let transition {
                     let alpha = transition.opacities(at: timeline.date)
                     let gains = audioGains(for: transition, at: timeline.date)
                     let continuing = Set(transition.to.videoSessions.compactMap { path, session in
@@ -667,6 +928,8 @@ struct ProgramCanvas: View {
                 // SwiftUI from interpolating text font/layout geometry during
                 // a Program transition or relayout.
                 transaction.disablesAnimations = true
+            }
+            }
             }
         }
     }

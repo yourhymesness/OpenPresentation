@@ -95,6 +95,11 @@ import Foundation
         precondition(ProgramPreviewQuality.lowLoad.renderMode(
             visibleVideos: 8, audienceOutputOpen: true) == .placeholder)
         precondition(SharedVideoPreviewPolicy.framesPerSecond == 12)
+        precondition(MetalVideoFrameRate.allCases.map(\.rawValue) == [24, 30, 60])
+        precondition(MetalVideoFrameRate.validated(24) == 24)
+        precondition(MetalVideoFrameRate.validated(60) == 60)
+        precondition(MetalVideoFrameRate.validated(0) == 30)
+        precondition(MetalVideoFrameRate.validated(120) == 30)
         precondition(ProgramPreviewQuality.automatic.playsVideo(
             visibleVideos: 8, audienceOutputOpen: false))
         precondition(ProgramPreviewQuality.fullMotion.playsVideo(

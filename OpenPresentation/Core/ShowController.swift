@@ -184,6 +184,8 @@ final class ShowController: ObservableObject {
             // operator is in Preview, before the live dissolve can begin.
             if selectedSlideID != oldValue {
                 VideoFirstFrameCache.shared.prefetch(slide: previewSlide)
+                VideoPlayerPrewarmCache.shared.prepare(slide: previewSlide,
+                    excluding: Set(liveVideoSessions.keys))
             }
         }
     }
@@ -261,6 +263,11 @@ final class ShowController: ObservableObject {
         slides[index].transitionSecondsOverride = seconds.map { min(max($0, 0.05), 30) }
     }
     @Published private(set) var activeTransition: ProgramTransition?
+    /// Keep the completed continuing-video layout mounted until the next take.
+    /// Otherwise the special z-order dissolve is replaced by a plain canvas
+    /// exactly at the endpoint, reparenting every incoming AVPlayerLayer at
+    /// once and making newly started videos appear to pop into view.
+    @Published private(set) var retainedContinuingDissolve: ProgramTransition?
     @Published var statusMessage = "BLIND: Changes remain off-air. Switch to Live before sending a slide."
 
 
@@ -443,6 +450,7 @@ final class ShowController: ObservableObject {
     private func beginProgramTransition(from old: ProgramFrame, to next: ProgramFrame,
                                         destination: PresentationSlide? = nil) {
         activeTransition = nil
+        retainedContinuingDissolve = nil
         autoTriggeredTransitionID = nil
         // A transition from a blank idle Program need not animate, but
         // clearing an already-live slide does honor the selected effect.
@@ -453,6 +461,17 @@ final class ShowController: ObservableObject {
         activeTransition = effect
         DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.12) { [weak self] in
             guard let self, self.activeTransition?.id == effect.id else { return }
+            if effect.style == .dissolve, !old.isBlackout, !old.isCleared,
+               !next.isBlackout, !next.isCleared {
+                let continuing = Set(next.videoSessions.compactMap { path, session in
+                    old.videoSessions[path] == session ? path : nil
+                })
+                if !ContinuingVideoLayerPlan.anchors(
+                    from: old.slide, to: next.slide,
+                    continuingPaths: continuing).isEmpty {
+                    self.retainedContinuingDissolve = effect
+                }
+            }
             self.activeTransition = nil
         }
     }
@@ -549,6 +568,8 @@ final class ShowController: ObservableObject {
         slides[index] = updated
         if updated.id == selectedSlideID {
             VideoFirstFrameCache.shared.prefetch(slide: updated)
+            VideoPlayerPrewarmCache.shared.prepare(slide: updated,
+                excluding: Set(liveVideoSessions.keys))
         }
     }
 
@@ -571,11 +592,27 @@ final class ShowController: ObservableObject {
     }
 
     func moveSelectedSlide(by offset: Int) {
-        guard let selectedSlideID,
+        guard mode == .blind, let selectedSlideID,
               let index = slides.firstIndex(where: { $0.id == selectedSlideID }) else { return }
         let destination = index + offset
         guard slides.indices.contains(destination) else { return }
+        checkpointBeforeSlideOperation("Reorder Slides")
         slides.swapAt(index, destination)
+    }
+
+    /// Move a library slide alongside the hovered target, preserving authored
+    /// IDs, collections and the immutable snapshot currently on Program.
+    /// The direction determines which side of the target receives the slide.
+    func moveSlide(_ movingID: UUID, to targetID: UUID) {
+        guard mode == .blind, movingID != targetID,
+              let source = slides.firstIndex(where: { $0.id == movingID }),
+              let destination = slides.firstIndex(where: { $0.id == targetID }) else { return }
+        checkpointBeforeSlideOperation("Reorder Slides")
+        let moved = slides.remove(at: source)
+        guard let targetIndex = slides.firstIndex(where: { $0.id == targetID }) else { return }
+        slides.insert(moved, at: targetIndex + (source < destination ? 1 : 0))
+        selectedSlideID = movingID
+        statusMessage = "BLIND: Slide reordered. Program unchanged."
     }
 
     func currentShow() -> PresentationShow {
@@ -619,6 +656,7 @@ final class ShowController: ObservableObject {
         liveSlideSnapshot = nil
         liveVideoSessions = [:]
         activeTransition = nil
+        retainedContinuingDissolve = nil
         // Preserve the operator's current Live/Blind mode while opening another show.
         isBlackout = false
         isCleared = false
@@ -666,6 +704,7 @@ final class ShowController: ObservableObject {
         liveSlideSnapshot = nil
         liveVideoSessions = [:]
         activeTransition = nil
+        retainedContinuingDissolve = nil
         isBlackout = false
         isCleared = false
         loopAutoAdvance = false

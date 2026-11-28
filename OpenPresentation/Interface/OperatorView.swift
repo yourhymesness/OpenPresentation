@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 
 /// Senses a few OS-supported signals without polling raw CPU/GPU percent.
@@ -54,7 +55,7 @@ private final class ProgramPreviewHealthMonitor: ObservableObject {
 /// Shared slide clipboard. Unlike the layer clipboard, this holds an entire
 /// authored slide, including notes, collection, timing, background, and media.
 /// Paste gets new slide/layer/group UUIDs from ShowController.
-private enum SlideClipboard {
+enum SlideClipboard {
     static let type = NSPasteboard.PasteboardType("com.openpresentation.slide")
 
     static func copy(_ slide: PresentationSlide) {
@@ -66,6 +67,29 @@ private enum SlideClipboard {
     static func paste() -> PresentationSlide? {
         guard let data = NSPasteboard.general.data(forType: type) else { return nil }
         return try? JSONDecoder().decode(PresentationSlide.self, from: data)
+    }
+}
+
+/// A drop commits exactly one undoable library reorder, rather than creating
+/// an undo checkpoint for every row entered while the pointer is moving.
+private struct SlideReorderDropDelegate: DropDelegate {
+    let targetID: UUID
+    let show: ShowController
+    @Binding var draggedID: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        show.mode == .blind && draggedID != nil && draggedID != targetID
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedID, draggedID != targetID, show.mode == .blind else { return false }
+        show.moveSlide(draggedID, to: targetID)
+        self.draggedID = nil
+        return true
     }
 }
 
@@ -84,6 +108,7 @@ struct OperatorView: View {
     @State private var notesEditorTarget: SlideNotesEditorTarget?
     @State private var transitionEditorTarget: SlideTransitionEditorTarget?
     @State private var slidePendingDeletion: UUID?
+    @State private var draggedSlideID: UUID?
     @State private var slideTransitionCustomText = ""
     @State private var globalTransitionCustomText = ""
     @State private var editingGlobalTransitionTime = false
@@ -546,6 +571,7 @@ struct OperatorView: View {
                     ForEach(show.visibleSlides) { slide in
                         Button {
                             endTextEditing()
+                            OpenPresentationNativeMenus.shared.focusSlideLibrary()
                             show.select(slide)
                         } label: {
                             VStack(alignment: .leading, spacing: 5) {
@@ -571,6 +597,13 @@ struct OperatorView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .onDrag {
+                            draggedSlideID = slide.id
+                            return NSItemProvider(object: slide.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [UTType.plainText], delegate:
+                            SlideReorderDropDelegate(targetID: slide.id, show: show,
+                                                     draggedID: $draggedSlideID))
                         .contextMenu {
                             Button("Copy Slide", systemImage: "doc.on.doc") { SlideClipboard.copy(slide) }
                             Button("Paste Slide After", systemImage: "doc.on.clipboard") {
@@ -720,8 +753,14 @@ struct OperatorView: View {
         GeometryReader { geometry in
             let available = max(1, geometry.size.width)
             let gap: CGFloat = 8
-            let left = max(0, (available - 2 * gap) * 0.32)
-            let middle = max(0, (available - 2 * gap) * 0.25)
+            // At laptop/windowed widths, three narrow cards clip controls.
+            // Collapse Collections into a menu and reserve usable widths for
+            // Transition and the three-channel audio mixer instead.
+            let showCollectionCard = isBlind || available >= 850
+            let left = showCollectionCard
+                ? max(0, (available - 2 * gap) * 0.32)
+                : min(300, max(190, (available - gap) * 0.40))
+            let middle = showCollectionCard ? max(0, (available - 2 * gap) * 0.25) : 0
             let halfHeight = max(0, (geometry.size.height - gap) / 2)
             HStack(alignment: .top, spacing: gap) {
                 VStack(spacing: gap) {
@@ -749,6 +788,9 @@ struct OperatorView: View {
                 .frame(width: left, height: geometry.size.height)
                 collectionsPanel
                     .frame(width: middle, height: geometry.size.height)
+                    .opacity(showCollectionCard ? 1 : 0)
+                    .clipped()
+                    .allowsHitTesting(showCollectionCard)
                 ProgramAudioMixer(show: show, isBlind: isBlind)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -815,46 +857,35 @@ struct OperatorView: View {
                 Text("PROGRAM")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
-                if !output.isOpen && !isBlind {
-                    Text("REHEARSAL · AUDIO")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .help("Live and Auto work without audience outputs. The Program monitor plays video and audio through your selected Audio output device, respecting show mute and fader settings.")
-                }
+                    .fixedSize(horizontal: true, vertical: false)
                 if show.liveSlide != nil {
                     PulsingProgramBadge(title: show.isBlackout ? "BLACKOUT" : (show.isCleared ? "CLEARED" : "LIVE"),
                                         tint: show.isBlackout ? .red : (show.isCleared ? .gray : .green))
                 }
                 Spacer(minLength: 0)
                 if programPreviewRenderMode != .native && visibleProgramVideoCount > 0 {
-                    Label(programPreviewRenderMode == .metalFrames ? "METAL 30 FPS · TEST" :
-                          (programPreviewRenderMode == .sharedFrames ? "SHARED 12 FPS" : "PREVIEW REDUCED"),
+                    Label(programPreviewRenderMode == .metalFrames ? "Metal 30 FPS" :
+                          (programPreviewRenderMode == .sharedFrames ? "Shared 12 FPS" : "Low-load"),
                           systemImage: programPreviewRenderMode == .metalFrames ? "cpu" : "bolt.fill")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(programPreviewRenderMode == .metalFrames ? .mint : .orange)
                         .lineLimit(1)
-                        .help(programPreviewRenderMode == .metalFrames
-                              ? "Experimental 30 FPS Metal Program video preview. Audience video and persistent audio are unchanged. Requires an open audience output."
-                              : programPreviewRenderMode == .sharedFrames
-                              ? "Program reads sampled frames from audience video decoders at 12 FPS. \(previewQuality == .automatic ? "Auto trigger: \(previewHealth.reason)" : "Manual shared preview")"
-                              : "Manual Low-load uses static placeholders; audience output remains full motion.")
+                        .minimumScaleFactor(0.8)
+                        .help("Program preview renderer is configured in OpenPresentation > Settings > Output. Audience video is unchanged.")
+                } else if !output.isOpen && !isBlind {
+                    Text("REHEARSAL · AUDIO")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help("Live and Auto work without audience outputs. The Program monitor plays video and audio through your selected Audio output device, respecting show mute and fader settings.")
                 }
-                Menu {
-                    ForEach(ProgramPreviewQuality.allCases) { quality in
-                        Button(quality.rawValue) { programPreviewQuality = quality.rawValue }
-                    }
-                } label: {
-                    Label("Preview: \(previewQuality.rawValue)", systemImage: "gauge.medium")
-                        .font(.caption2)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Auto switches to shared 12 FPS moving video only when sustained pressure is detected. Shared 12 FPS avoids Program decoders while the audience output is open. Full Video and Low-load are overrides.")
                 Button {
                     showingRenderDiagnostics.toggle()
                 } label: {
                     Label("Frame Stats", systemImage: "chart.xyaxis.line")
                         .font(.caption2)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 .buttonStyle(.borderless)
                 .popover(isPresented: $showingRenderDiagnostics) {
@@ -1189,9 +1220,16 @@ struct OperatorView: View {
                         .help("This title appears in slide lists, but never on the audience output")
                 }
             }
-            Label("TRANSITION", systemImage: "square.stack.3d.up")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 7) {
+                Label("TRANSITION", systemImage: "square.stack.3d.up")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if !isBlind {
+                    compactCollectionsMenu
+                }
+            }
 
             HStack(alignment: .top, spacing: 8) {
                 Picker("Effect", selection: $show.transitionStyle) {
@@ -1225,6 +1263,24 @@ struct OperatorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // The ScrollView hosting Transition already paints the panel surface.
         // Avoid layering a second, lighter rectangle inside that dark card.
+    }
+
+    /// When the Collections card collapses on a narrow Live desk, its filter
+    /// remains reachable without spending another full dashboard column.
+    private var compactCollectionsMenu: some View {
+        Menu {
+            Button("All Slides") { show.selectCollection(nil) }
+            ForEach(show.collections) { collection in
+                Button(collection.name) { show.selectCollection(collection.id) }
+            }
+        } label: {
+            Label("Collections", systemImage: "folder")
+                .font(.caption2)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .menuStyle(.borderlessButton)
+        .help("Filter slides by collection; all collections are also shown when the window is wider")
     }
 
     private var globalTransitionTimeControls: some View {
@@ -1681,10 +1737,11 @@ private struct VerticalMixerFader: View {
 
     var body: some View {
         VStack(spacing: 5) {
-            HStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Text(title)
                     .font(.system(size: 10, weight: .semibold))
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .multilineTextAlignment(.center)
                 Text(estimatedMeter ? "Post" : "Pre")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
@@ -1694,8 +1751,8 @@ private struct VerticalMixerFader: View {
                     .background(estimatedMeter ? Color.cyan.opacity(0.13) : Color.gray.opacity(0.15),
                                 in: Capsule())
             }
-            .frame(height: 27, alignment: .center)
-            .help(estimatedMeter ? "Master meter: post-fader mix estimate" : "Slide signal before its cue fader")
+            .frame(height: 35, alignment: .center)
+            .help("\(title) · \(estimatedMeter ? "Master post-fader estimate" : "Slide pre-fader signal")")
             Text("\(Int((gain * 100).rounded()))%")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.secondary)

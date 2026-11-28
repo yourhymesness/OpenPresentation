@@ -61,6 +61,85 @@ final class VideoFirstFrameCache {
     }
 }
 
+/// Prepare the *decoder*, not just a poster image, while a cue is in Preview.
+/// Players stay paused and muted until an audience surface claims them. We
+/// deliberately keep only one prepared copy per file: warming a second Program
+/// monitor decoder for every video can itself overwhelm a many-video slide.
+@MainActor
+final class VideoPlayerPrewarmCache {
+    static let shared = VideoPlayerPrewarmCache()
+
+    final class Prepared {
+        let player: AVPlayer
+        let queue: AVQueuePlayer?
+        let looper: AVPlayerLooper?
+
+        init(url: URL, behavior: VideoEndBehavior) {
+            if behavior == .loop {
+                let queue = AVQueuePlayer()
+                queue.actionAtItemEnd = .advance
+                let looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
+                self.player = queue
+                self.queue = queue
+                self.looper = looper
+            } else {
+                let player = AVPlayer(playerItem: AVPlayerItem(url: url))
+                player.actionAtItemEnd = .pause
+                self.player = player
+                self.queue = nil
+                self.looper = nil
+            }
+            player.isMuted = true
+            player.volume = 0
+            player.preroll(atRate: 1) { _ in }
+        }
+    }
+
+    private struct Key: Hashable {
+        let path: String
+        let behavior: VideoEndBehavior
+    }
+
+    private var prepared: [Key: Prepared] = [:]
+    private let maximumPlayers = 10
+
+    func prepare(slide: PresentationSlide?, excluding activePaths: Set<String>) {
+        guard let slide else {
+            prepared.removeAll()
+            return
+        }
+        var requested: [Key] = []
+        func include(_ path: String, _ behavior: VideoEndBehavior) {
+            let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+            let key = Key(path: canonical, behavior: behavior)
+            guard !activePaths.contains(canonical),
+                  FileManager.default.fileExists(atPath: canonical),
+                  !requested.contains(key) else { return }
+            requested.append(key)
+        }
+        if let path = slide.backgroundVideoPath, !path.isEmpty {
+            include(path, slide.resolvedBackgroundVideoEndBehavior)
+        }
+        for layer in slide.layers where layer.isVisible && layer.kind == .video {
+            if let path = layer.videoPath, !path.isEmpty {
+                include(path, layer.resolvedVideoEndBehavior)
+            }
+        }
+        let desired = Set(requested.prefix(maximumPlayers))
+        prepared = prepared.filter { desired.contains($0.key) }
+        for key in requested.prefix(maximumPlayers) where prepared[key] == nil {
+            prepared[key] = Prepared(url: URL(fileURLWithPath: key.path), behavior: key.behavior)
+        }
+    }
+
+    func claim(path: String, behavior: VideoEndBehavior, scope: String) -> Prepared? {
+        // Audience playback gets priority; the Program monitor remains a
+        // separate clock and may not consume a decoder meant for the audience.
+        guard scope == "fullscreen" || scope == "windowed" else { return nil }
+        return prepared.removeValue(forKey: Key(path: path, behavior: behavior))
+    }
+}
+
 /// A SwiftUI video view is disposable. Its AVPlayer must NOT be: a slide
 /// dissolve constructs a temporary incoming canvas and then removes it.
 /// Without a retained player, the outgoing/incoming handoff starts video and
@@ -114,6 +193,86 @@ struct VideoPlaybackSurface: NSViewRepresentable {
     }
 }
 
+/// An outgoing placement of a continuing video during a dissolve. It borrows
+/// the existing on-air AVPlayers without mounting a second decoder or
+/// acquiring the pooled engine's sole NSView. Audio remains owned by the bus.
+struct VideoPlaybackMirrorSurface: NSViewRepresentable {
+    let path: String
+    let playbackSessionID: UUID
+    let outputScope: String
+    let sourceSlot: String
+    let contentMode: LayerContentMode
+    let transitionOpacity: Double
+
+    func makeNSView(context: Context) -> VideoPlaybackMirrorNSView {
+        VideoPlaybackMirrorNSView(frame: .zero)
+    }
+
+    func updateNSView(_ view: VideoPlaybackMirrorNSView, context: Context) {
+        let key = VideoPlaybackPool.Key(
+            path: VideoTakePlanner.canonical(path), scope: outputScope,
+            sessionID: playbackSessionID, sourceSlot: sourceSlot)
+        guard let engine = VideoPlaybackPool.shared.mountedEngine(for: key) else {
+            view.clearPlayers()
+            return
+        }
+        engine.updateMirror(view, contentMode: contentMode,
+                            transitionOpacity: transitionOpacity)
+    }
+
+    static func dismantleNSView(_ view: VideoPlaybackMirrorNSView, coordinator: ()) {
+        view.clearPlayers()
+    }
+}
+
+/// A second *display* for one already-playing video. Its AVPlayerLayers do
+/// not own transport, audio, looping, or any AVPlayer instance.
+final class VideoPlaybackMirrorNSView: NSView {
+    fileprivate let videoA = AVPlayerLayer()
+    fileprivate let videoB = AVPlayerLayer()
+    fileprivate let poster = CALayer()
+    fileprivate let black = CALayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        installLayers()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installLayers()
+    }
+
+    private func installLayers() {
+        wantsLayer = true
+        layer?.masksToBounds = true
+        for playerLayer in [videoA, videoB] {
+            playerLayer.isOpaque = false
+            playerLayer.backgroundColor = NSColor.clear.cgColor
+            layer?.addSublayer(playerLayer)
+        }
+        poster.contentsGravity = .resizeAspectFill
+        black.backgroundColor = NSColor.black.cgColor
+        layer?.addSublayer(poster)
+        layer?.addSublayer(black)
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for item in [videoA, videoB, poster, black] { item.frame = bounds }
+        CATransaction.commit()
+    }
+
+    func clearPlayers() {
+        videoA.player = nil
+        videoB.player = nil
+        poster.contents = nil
+        layer?.opacity = 0
+    }
+}
+
 /// A host is owned by SwiftUI and may be destroyed between slide takes. It
 /// temporarily mounts a retained engine view owned by VideoPlaybackPool.
 /// Reparenting the SAME AppKit view keeps the existing AVPlayerLayers, queue,
@@ -139,10 +298,18 @@ final class VideoPlaybackHostView: NSView {
         let newKey = VideoPlaybackPool.Key(path: URL(fileURLWithPath: path).standardizedFileURL.path,
                                            scope: scope, sessionID: session, sourceSlot: sourceSlot)
         let newlyMounted = key != newKey || engine == nil
+        var needsInitialAlignment = false
         if newlyMounted {
             unbind()
+            // A transition can replace its SwiftUI host while preserving the
+            // SAME playback session and AVPlayer. Reparent that decoder as-is:
+            // running the new-output alignment seek here visibly jumps a
+            // continuing video backward at the end of a dissolve.
+            needsInitialAlignment = !VideoPlaybackPool.shared.hasConfiguredEngine(for: newKey)
             let retained = VideoPlaybackPool.shared.engine(for: newKey)
-            VideoPlaybackPool.shared.prepareNewSurface(retained, key: newKey)
+            if needsInitialAlignment {
+                VideoPlaybackPool.shared.prepareNewSurface(retained, key: newKey)
+            }
             engine = retained
             key = newKey
             // If a dissolve still has two canvas instances, only the newer
@@ -169,7 +336,7 @@ final class VideoPlaybackHostView: NSView {
         // A cached audible player must not restart before the new mute state.
         if newlyMounted { VideoPlaybackPool.shared.didAttach(engine, key: newKey) }
         VideoPlaybackPool.shared.applyTransportIntent(to: engine, key: newKey)
-        if newlyMounted { VideoPlaybackPool.shared.alignNewSurface(engine, key: newKey) }
+        if needsInitialAlignment { VideoPlaybackPool.shared.alignNewSurface(engine, key: newKey) }
     }
 
     override func layout() {
@@ -271,6 +438,20 @@ final class VideoPlaybackPool {
         print("[OpenPresentation Video] New decoder: \(key.scope) · \(URL(fileURLWithPath: key.path).lastPathComponent) · take \(key.sessionID.uuidString.prefix(8))")
         #endif
         entries[key] = Entry(engine: engine)
+        return engine
+    }
+
+    /// Distinguish a genuinely new output decoder from a retained player
+    /// being moved between transition hosts. Only the former needs to seek
+    /// to the existing show's reference clock on first attachment.
+    func hasConfiguredEngine(for key: Key) -> Bool {
+        entries[key]?.engine.isConfigured ?? false
+    }
+
+    /// Mirrors must never instantiate an extra decoder or steal the live host.
+    func mountedEngine(for key: Key) -> VideoPlaybackNSView? {
+        guard let engine = entries[key]?.engine,
+              engine.superview != nil, engine.isConfigured else { return nil }
         return engine
     }
 
@@ -510,6 +691,33 @@ final class VideoPlaybackNSView: NSView {
     private let startupPoster = CALayer()
     private let blackOverlay = CALayer()
     private var firstFrameObservation: NSKeyValueObservation?
+
+    /// Keep temporary mirror layers in step with soft-loop and end fades.
+    /// Both video placements reference the same player and playback clock.
+    func updateMirror(_ mirror: VideoPlaybackMirrorNSView,
+                      contentMode: LayerContentMode, transitionOpacity: Double) {
+        let gravity: AVLayerVideoGravity
+        switch contentMode {
+        case .fit: gravity = .resizeAspect
+        case .fill: gravity = .resizeAspectFill
+        case .stretch: gravity = .resize
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if mirror.videoA.player !== videoA.player { mirror.videoA.player = videoA.player }
+        if mirror.videoB.player !== videoB.player { mirror.videoB.player = videoB.player }
+        mirror.videoA.videoGravity = gravity
+        mirror.videoB.videoGravity = gravity
+        mirror.videoA.opacity = videoA.opacity
+        mirror.videoB.opacity = videoB.opacity
+        mirror.poster.contentsGravity = startupPoster.contentsGravity
+        mirror.poster.contents = startupPoster.contents
+        mirror.poster.opacity = startupPoster.opacity
+        mirror.black.opacity = blackOverlay.opacity
+        mirror.layer?.opacity = Float(transitionOpacity.isFinite
+            ? min(max(transitionOpacity, 0), 1) : 0)
+        CATransaction.commit()
+    }
 
     private var pathInUse: String?
     private var endBehavior: VideoEndBehavior = .loop
@@ -790,18 +998,20 @@ final class VideoPlaybackNSView: NSView {
         setAlphas(primary: 1, standby: 0, black: 0)
         showStartupPoster(for: path)
         let url = URL(fileURLWithPath: path)
+        let prewarmed = VideoPlayerPrewarmCache.shared.claim(path: path,
+                                                            behavior: behavior, scope: meterScope)
 
         if behavior == .loop {
-            let queue = AVQueuePlayer()
+            let queue = prewarmed?.queue ?? AVQueuePlayer()
             AudioOutputRouting.apply(to: queue)
             queue.actionAtItemEnd = .advance
             queue.isMuted = !audioIsEnabled
             queue.volume = audibleVolume
-            let item = AVPlayerItem(url: url)
+            let item = queue.currentItem ?? AVPlayerItem(url: url)
             meterPrimaryID = VideoPlaybackWorkload.shouldMeter(scope: meterScope, audible: requestedAudioEnabled)
                 ? LiveAudioMeters.shared.attach(item: item, to: queue, scope: meterScope) : nil
             updateMeterParameters()
-            looper = AVPlayerLooper(player: queue, templateItem: item)
+            looper = prewarmed?.looper ?? AVPlayerLooper(player: queue, templateItem: item)
             loopQueue = queue
             primary = queue
             videoA.player = queue
@@ -811,7 +1021,21 @@ final class VideoPlaybackNSView: NSView {
             return
         }
 
-        let (player, primaryMeter) = makePlayer(url: url)
+        let playerAndMeter: (AVPlayer, UUID?)
+        if let prewarmed {
+            let player = prewarmed.player
+            AudioOutputRouting.apply(to: player)
+            player.isMuted = !audioIsEnabled
+            player.volume = audibleVolume
+            let meter = VideoPlaybackWorkload.shouldMeter(scope: meterScope, audible: requestedAudioEnabled)
+                ? player.currentItem.flatMap {
+                    LiveAudioMeters.shared.attach(item: $0, to: player, scope: meterScope)
+                } : nil
+            playerAndMeter = (player, meter)
+        } else {
+            playerAndMeter = makePlayer(url: url)
+        }
+        let (player, primaryMeter) = playerAndMeter
         meterPrimaryID = primaryMeter
         player.actionAtItemEnd = .pause
         primary = player

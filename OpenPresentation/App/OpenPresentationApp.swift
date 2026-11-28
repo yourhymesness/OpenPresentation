@@ -102,10 +102,17 @@ struct OpenPresentationApp: App {
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 Divider()
+                Button("Take Preview Live") { session.show.goLive() }
+                    .keyboardShortcut(.return, modifiers: [.command, .shift])
+                Divider()
                 Button("Next Slide") { session.show.advance(by: 1) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command])
                 Button("Previous Slide") { session.show.advance(by: -1) }
                     .keyboardShortcut(.leftArrow, modifiers: [.command])
+                Button("Program Next Slide") { session.show.advanceProgram(by: 1) }
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                Button("Program Previous Slide") { session.show.advanceProgram(by: -1) }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                 Divider()
                 Button("Toggle Blackout") { session.show.toggleBlackout() }
                     .keyboardShortcut("b", modifiers: [.command, .shift])
@@ -288,6 +295,7 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
     private weak var output: OutputManager?
     private var editorActions: LayerEditorMenuActions?
     private var editorOwner: UUID?
+    private(set) var isSlideLibraryFocused = false
     private var installedEditMenu: NSMenu?
     private var installedViewMenu: NSMenu?
     // Native fullscreen windows can become the key/main window without the
@@ -342,6 +350,9 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
         editorOwner = owner
         editorActions = actions
     }
+
+    func focusSlideLibrary() { isSlideLibraryFocused = true }
+    func focusLayerEditor() { isSlideLibraryFocused = false }
 
     func unregisterEditor(owner: UUID) {
         guard editorOwner == owner else { return }
@@ -421,6 +432,10 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
         show?.mode == .blind && editorActions != nil
     }
 
+    private var canEditSlide: Bool {
+        show?.mode == .blind && isSlideLibraryFocused && show?.previewSlide != nil
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let text = textEditor
         let textSelected = (text?.selectedRange().length ?? 0) > 0
@@ -436,8 +451,11 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
             return canEditLayers && (editorActions?.canCut() ?? false)
         case Tag.copy:
             if text != nil { return textSelected }
-            return canEditLayers && (editorActions?.hasSelection() ?? false)
-        case Tag.paste: return (text != nil || canEditLayers) && !NSPasteboard.general.types.orEmpty.isEmpty
+            return canEditSlide || (canEditLayers && (editorActions?.hasSelection() ?? false))
+        case Tag.paste:
+            if text != nil { return true }
+            if canEditSlide { return SlideClipboard.paste() != nil }
+            return canEditLayers && !NSPasteboard.general.types.orEmpty.isEmpty
         case Tag.delete: return canEditLayers && (editorActions?.hasSelection() ?? false)
         case Tag.selectAll: return text != nil || canEditLayers
         case Tag.fullscreen: return (output?.isFullscreenOpen ?? false) || output?.selectedScreen != nil
@@ -479,10 +497,14 @@ final class OpenPresentationNativeMenus: NSObject, NSMenuItemValidation, NSMenuD
     }
     @objc private func copyEdit(_ sender: Any?) {
         if let textEditor { textEditor.copy(sender) }
+        else if canEditSlide, let slide = show?.previewSlide { SlideClipboard.copy(slide) }
         else if canEditLayers { editorActions?.copy() }
     }
     @objc private func pasteEdit(_ sender: Any?) {
         if let textEditor { textEditor.paste(sender) }
+        else if canEditSlide, let slide = SlideClipboard.paste() {
+            show?.insertCopiedSlide(slide, after: show?.selectedSlideID)
+        }
         else if canEditLayers { _ = editorActions?.paste() }
     }
     @objc private func deleteLayers(_ sender: Any?) {
@@ -545,7 +567,7 @@ private struct AppSettingsView: View {
                 .tabItem { Label("Audio", systemImage: "speaker.wave.2") }
         }
         .padding(12)
-        .frame(width: 490, height: 320)
+        .frame(width: 510, height: 385)
     }
 }
 
@@ -573,6 +595,9 @@ private struct AppearanceSettingsView: View {
 
 private struct OutputSettingsView: View {
     @ObservedObject var output: OutputManager
+    @AppStorage("programPreviewQuality") private var programPreviewQuality = ProgramPreviewQuality.automatic.rawValue
+    @AppStorage("experimentalMetalAudienceVideo") private var experimentalMetalAudienceVideo = false
+    @AppStorage("metalTargetFPS") private var metalTargetFPS = MetalVideoFrameRate.standard.rawValue
 
     var body: some View {
         Form {
@@ -598,6 +623,40 @@ private struct OutputSettingsView: View {
                  "Fill crops the slide to cover the selected display.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Section("Program Monitor") {
+                Picker("Video preview renderer", selection: $programPreviewQuality) {
+                    ForEach(ProgramPreviewQuality.allCases) { quality in
+                        Text(quality == .metalFrames ? "Metal video (experimental)" : quality.rawValue)
+                            .tag(quality.rawValue)
+                    }
+                }
+                Text("Auto is recommended. This changes only the operator's Program preview, " +
+                     "not the audience video or audio. Shared 12 FPS and Metal preview " +
+                     "reuse audience-decoded frames and need an open audience output.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Experimental Audience Output") {
+                Picker("Audience video renderer", selection: $experimentalMetalAudienceVideo) {
+                    Text("Native (recommended)").tag(false)
+                    Text("Metal (experimental)").tag(true)
+                }
+                Picker("Metal video frame rate", selection: $metalTargetFPS) {
+                    ForEach(MetalVideoFrameRate.allCases) { rate in
+                        Text("\(rate.rawValue) FPS").tag(rate.rawValue)
+                    }
+                }
+                Text("Frame rate applies to Metal video layers in the Program preview and audience " +
+                     "outputs; native AVFoundation output follows source/display timing. " +
+                     "Metal currently accelerates video layers only, not entire slides or transitions. " +
+                     "Test with Windowed Output first; switch back to Native if stuttering occurs.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if output.isFullscreenOpen {
                 Text("To change the fullscreen display, toggle Fullscreen Output off and back on.")
